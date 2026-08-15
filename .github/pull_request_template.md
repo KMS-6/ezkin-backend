@@ -4,7 +4,13 @@
 
 ## 관련 Issue
 
-Closes #
+<!--
+feature/* → develop PR: Related to #이슈번호
+develop → main PR: Closes #이슈번호
+Issue 번호 없이 PR을 생성하지 않습니다.
+-->
+
+Related to #
 
 ## 변경 내용
 
