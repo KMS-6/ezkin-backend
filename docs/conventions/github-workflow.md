@@ -41,8 +41,13 @@ Ruleset은 해당 저장소의 **Settings > Rules 
 ## 4. Pull Request
 
 - PR 하나는 하나의 목적만 가진다.
-- 관련 Issue을 `Closes #이슈번호`로 연결한다.
+- Issue 번호 없이 PR을 생성하지 않는다.
+- `feature/be/* → develop` PR은 `Related to #이슈번호`로 추적 관계를 남긴다.
+- `develop → main` PR은 포함된 모든 Issue를 `Closes #이슈번호`로 연결한다.
+- GitHub는 PR이 기본 브랜치 `main`에 병합될 때 `Closes`로 연결된 Issue를 자도 종료한다.
 - 결정 이유, 검증 결과, AI 사용 범위, 리뷰 포인트를 작성한다.
 - 제목은 `[타입] 작업 내용` 형식을 사용한다.
+
+세부 동작은 [GitHub Issue와 PR 연결 문서](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue)를 참고한다.
 
 세부 코드 리뷰 규칙은 [PR 크기·코드 리뷰 컨벤션](code-review.md)을 따른다.
