@@ -1,6 +1,6 @@
 ---
 name: "tdd-guide"
-description: "Test-driven development skill for writing unit tests, generating test fixtures and mocks, analyzing coverage gaps, and guiding red-green-refactor workflows across Jest, Pytest, JUnit, Vitest, and Mocha. Use when the user asks to write tests, improve test coverage, practice TDD, generate mocks or stubs, or mentions testing frameworks like Jest, pytest, or JUnit."
+description: "TDD skill for writing pytest tests, pytest-asyncio async tests, generating fixtures, and guiding red-green-refactor workflows. Use when adding tests for new FastAPI endpoints, async SQLAlchemy operations, business logic rules, or coverage gaps. Covers pytest, pytest-asyncio (asyncio_mode=auto), SQLite in-memory DB override pattern, and httpx AsyncClient for API tests."
 ---
 
 # TDD Guide

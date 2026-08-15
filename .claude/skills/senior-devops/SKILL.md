@@ -1,6 +1,6 @@
 ---
 name: "senior-devops"
-description: Comprehensive DevOps skill for CI/CD, infrastructure automation, containerization, and cloud platforms (AWS, GCP, Azure). Includes pipeline setup, infrastructure as code, deployment automation, and monitoring. Use when setting up pipelines, deploying applications, managing infrastructure, implementing monitoring, or optimizing deployment processes.
+description: "DevOps skill for CI/CD, containerization, and deployment. Use when setting up or debugging GitHub Actions workflows, Render Blueprint (render.yaml), Docker/Docker Compose config, Alembic migration deployment, or health check / rollback procedures. Covers GitHub Actions, Render Web Service + PostgreSQL, Docker, uv-based Python builds, and deployment runbooks."
 ---
 
 # Senior Devops

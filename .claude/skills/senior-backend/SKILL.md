@@ -1,6 +1,6 @@
 ---
 name: "senior-backend"
-description: Designs and implements backend systems including REST APIs, microservices, database architectures, authentication flows, and security hardening. Use when the user asks to "design REST APIs", "optimize database queries", "implement authentication", "build microservices", "review backend code", "set up GraphQL", "handle database migrations", or "load test APIs". Covers Node.js/Express/Fastify development, PostgreSQL optimization, API security, and backend architecture patterns.
+description: "Designs and implements backend systems including REST APIs, database architectures, authentication flows, and security hardening. Use when the user asks to design FastAPI endpoints, optimize SQLAlchemy queries, implement authentication, add a new module, review backend code, handle Alembic migrations, or load test APIs. Covers FastAPI/Python development, SQLAlchemy 2.0 async, PostgreSQL optimization, Pydantic schemas, and API security patterns."
 ---
 
 # Senior Backend Engineer
