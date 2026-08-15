@@ -3,321 +3,176 @@ name: "senior-devops"
 description: "DevOps skill for CI/CD, containerization, and deployment. Use when setting up or debugging GitHub Actions workflows, Render Blueprint (render.yaml), Docker/Docker Compose config, Alembic migration deployment, or health check / rollback procedures. Covers GitHub Actions, Render Web Service + PostgreSQL, Docker, uv-based Python builds, and deployment runbooks."
 ---
 
-# Senior Devops
+# Senior DevOps Engineer
 
-Complete toolkit for senior devops with modern tools and best practices.
+GitHub Actions + Render + Docker + uv 기반 Python 배포 파이프라인.
 
-## Quick Start
+---
 
-### Main Capabilities
+## GitHub Actions CI
 
-This skill provides three core capabilities through automated scripts:
+실제 `.github/workflows/ci.yml`:
 
-```bash
-# Script 1: Pipeline Generator — scaffolds CI/CD pipelines for GitHub Actions or CircleCI
-python scripts/pipeline_generator.py ./app --platform=github --stages=build,test,deploy
-
-# Script 2: Terraform Scaffolder — generates and validates IaC modules for AWS/GCP/Azure
-python scripts/terraform_scaffolder.py ./infra --provider=aws --module=ecs-service --verbose
-
-# Script 3: Deployment Manager — generates deployment manifests + runbooks with rollback support
-python3 scripts/deployment_manager.py deploy --env=staging --image=app:1.2.3 --strategy=blue-green --verbose --json
-```
-
-## Core Capabilities
-
-### 1. Pipeline Generator
-
-Scaffolds CI/CD pipeline configurations for GitHub Actions or CircleCI, with stages for build, test, security scan, and deploy.
-
-**Example — GitHub Actions workflow:**
 ```yaml
-# .github/workflows/ci.yml
-name: CI/CD Pipeline
+name: CI
+
 on:
-  push:
-    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build-and-test:
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: astral-sh/setup-uv@v6
         with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test -- --coverage
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
+          version: "0.8.13"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run pytest
 
-  build-docker:
-    needs: build-and-test
+  deployment-config:
+    name: Deployment config
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build and push image
-        uses: docker/build-push-action@v5
-        with:
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
-
-  deploy:
-    needs: build-docker
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to ECS
-        run: |
-          aws ecs update-service \
-            --cluster production \
-            --service app-service \
-            --force-new-deployment
+      - run: ruby -e 'require "yaml"; YAML.load_file("render.yaml")'
+      - run: docker compose config --quiet
+      - run: docker build -t ezkin-api:ci .
 ```
 
-**Usage:**
-```bash
-python scripts/pipeline_generator.py <project-path> --platform=github|circleci --stages=build,test,deploy
-```
+**포인트:**
+- `uv sync --frozen` — lockfile 기준 재현 가능한 설치
+- `ruff format --check` + `ruff check` — 포맷·린트 검사
+- `deployment-config` 잡이 render.yaml 파싱, docker-compose, Dockerfile 빌드를 모두 검증
 
-### 2. Terraform Scaffolder
+---
 
-Generates, validates, and plans Terraform modules. Enforces consistent module structure and runs `terraform validate` + `terraform plan` before any apply.
+## Render Blueprint (render.yaml)
 
-**Example — AWS ECS service module:**
-```hcl
-# modules/ecs-service/main.tf
-resource "aws_ecs_task_definition" "app" {
-  family                   = var.service_name
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = var.cpu
-  memory                   = var.memory
-
-  container_definitions = jsonencode([{
-    name      = var.service_name
-    image     = var.container_image
-    essential = true
-    portMappings = [{
-      containerPort = var.container_port
-      protocol      = "tcp"
-    }]
-    environment = [for k, v in var.env_vars : { name = k, value = v }]
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = "/ecs/${var.service_name}"
-        awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "ecs"
-      }
-    }
-  }])
-}
-
-resource "aws_ecs_service" "app" {
-  name            = var.service_name
-  cluster         = var.cluster_id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets          = var.private_subnet_ids
-    security_groups  = [aws_security_group.app.id]
-    assign_public_ip = false
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.app.arn
-    container_name   = var.service_name
-    container_port   = var.container_port
-  }
-}
-```
-
-**Usage:**
-```bash
-python scripts/terraform_scaffolder.py <target-path> --provider=aws|gcp|azure --module=ecs-service|gke-deployment|aks-service [--verbose]
-```
-
-### 3. Deployment Manager
-
-Generates Kubernetes deployment manifests and ordered kubectl runbooks for blue/green or rolling strategies, with health-check gates before traffic switches and rollback runbooks. The tool writes manifests and prints the commands — it never applies them to a cluster itself, so every change gets a human review.
-
-**Example — Kubernetes blue/green deployment (blue-slot specific elements):**
 ```yaml
-# k8s/deployment-blue.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: app-blue
-  labels:
-    app: myapp
-    slot: blue      # slot label distinguishes blue from green
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: myapp
-      slot: blue
-  template:
-    metadata:
-      labels:
-        app: myapp
-        slot: blue
-    spec:
-      containers:
-        - name: app
-          image: ghcr.io/org/app:1.2.3
-          readinessProbe:       # gate: pod must pass before traffic switches
-            httpGet:
-              path: /healthz
-              port: 8080
-            initialDelaySeconds: 10
-            periodSeconds: 5
-          resources:
-            requests:
-              cpu: "250m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
-              memory: "512Mi"
+services:
+  - type: web
+    name: ezkin-api
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: develop              # develop 브랜치 push → 자동 배포
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass  # CI 통과 후 배포
+    envVars:
+      - key: AAC_DATABASE_URL
+        fromDatabase:
+          name: ezkin-db
+          property: connectionString
+      - key: AAC_API_PREFIX
+        value: /api/v1
+      - key: AAC_DEBUG
+        value: "false"
+      - key: AAC_CORS_ORIGINS
+        sync: false              # Render 대시보드에서 수동 설정
+
+databases:
+  - name: ezkin-db
+    plan: free
+    region: singapore
+    databaseName: ezkin
+    user: ezkin
+    postgresMajorVersion: "17"
 ```
 
-**Usage:**
-```bash
-python scripts/deployment_manager.py deploy \
-  --env=staging|production \
-  --image=app:1.2.3 \
-  --strategy=blue-green|rolling \
-  --health-check-url=https://app.example.com/healthz
-
-python scripts/deployment_manager.py rollback --env=production --to-version=1.2.2
-python scripts/deployment_manager.py --analyze --env=production   # audit current state
-```
-
-## Resources
-
-- Pattern Reference: `references/cicd_pipeline_guide.md` — detailed CI/CD patterns, best practices, anti-patterns
-- Workflow Guide: `references/infrastructure_as_code.md` — IaC step-by-step processes, optimization, troubleshooting
-- Technical Guide: `references/deployment_strategies.md` — deployment strategy configs, security considerations, scalability
-- Tool Scripts: `scripts/` directory
-
-## Development Workflow
-
-### 1. Infrastructure Changes (Terraform)
-
-```bash
-# Scaffold or update module
-python scripts/terraform_scaffolder.py ./infra --provider=aws --module=ecs-service --verbose
-
-# Validate and plan — review diff before applying
-terraform -chdir=infra init
-terraform -chdir=infra validate
-terraform -chdir=infra plan -out=tfplan
-
-# Apply only after plan review
-terraform -chdir=infra apply tfplan
-
-# Verify resources are healthy
-aws ecs describe-services --cluster production --services app-service \
-  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
-```
-
-### 2. Application Deployment
-
-```bash
-# Generate or update pipeline config
-python scripts/pipeline_generator.py . --platform=github --stages=build,test,security,deploy
-
-# Build and tag image
-docker build -t ghcr.io/org/app:$(git rev-parse --short HEAD) .
-docker push ghcr.io/org/app:$(git rev-parse --short HEAD)
-
-# Deploy with health-check gate
-python scripts/deployment_manager.py deploy \
-  --env=production \
-  --image=app:$(git rev-parse --short HEAD) \
-  --strategy=blue-green \
-  --health-check-url=https://app.example.com/healthz
-
-# Verify pods are running
-kubectl get pods -n production -l app=myapp
-kubectl rollout status deployment/app-blue -n production
-
-# Switch traffic after verification
-kubectl patch service app-svc -n production \
-  -p '{"spec":{"selector":{"slot":"blue"}}}'
-```
-
-### 3. Rollback Procedure
-
-```bash
-# Immediate rollback via deployment manager
-python scripts/deployment_manager.py rollback --env=production --to-version=1.2.2
-
-# Or via kubectl
-kubectl rollout undo deployment/app -n production
-kubectl rollout status deployment/app -n production
-
-# Verify rollback succeeded
-kubectl get pods -n production -l app=myapp
-curl -sf https://app.example.com/healthz || echo "ROLLBACK FAILED — escalate"
-```
-
-## Multi-Cloud Cross-References
-
-Use these companion skills for cloud-specific deep dives:
-
-| Skill | Cloud | Use When |
-|-------|-------|----------|
-| **aws-solution-architect** | AWS | ECS/EKS, Lambda, VPC design, cost optimization |
-| **azure-cloud-architect** | Azure | AKS, App Service, Virtual Networks, Azure DevOps |
-| **gcp-cloud-architect** | GCP | GKE, Cloud Run, VPC, Cloud Build *(coming soon)* |
-
-**Multi-cloud vs single-cloud decision:**
-- **Single-cloud** (default) — lower operational complexity, deeper managed-service integration, better cost leverage with committed-use discounts
-- **Multi-cloud** — required when mandated by compliance/data residency, acquiring companies on different clouds, or needing best-of-breed services across providers (e.g., AWS for compute + GCP for ML)
-- **Hybrid** — on-prem + cloud; use when regulated workloads must stay on-prem while burst/non-sensitive workloads run in the cloud
-
-> Start single-cloud. Add a second cloud only when there is a concrete business or compliance driver — not for theoretical redundancy.
+**주의사항:**
+- `AAC_CORS_ORIGINS`는 `sync: false` — Render 대시보드에서 JSON 배열로 직접 입력
+- 무료 플랜: 15분 비활성 시 슬립, PostgreSQL 90일 만료
+- `autoDeployTrigger: checksPass` — CI 실패 시 배포 차단
 
 ---
 
-## Cloud-Agnostic IaC
+## Dockerfile
 
-### Terraform / OpenTofu (Default Choice)
+```dockerfile
+FROM python:3.13-slim
 
-Terraform (or its open-source fork OpenTofu) is the recommended IaC tool for most teams:
-- Single language (HCL) across AWS, Azure, GCP, and 3,000+ providers
-- State management with remote backends (S3, GCS, Azure Blob)
-- Plan-before-apply workflow prevents drift surprises
-- Cross-reference **terraform-patterns** for module structure, state isolation, and CI/CD integration
+WORKDIR /app
+COPY pyproject.toml uv.lock* ./
+RUN pip install --no-cache-dir uv==0.8.13 && uv sync --frozen --no-dev
+COPY . .
 
-### Pulumi (Programming Language IaC)
+CMD ["sh", "-c", "uv run --no-sync alembic upgrade head && uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+```
 
-Choose Pulumi when the team strongly prefers TypeScript, Python, Go, or C# over HCL:
-- Full programming language — loops, conditionals, unit tests native
-- Same cloud provider coverage as Terraform
-- Easier onboarding for dev teams that resist learning HCL
-
-### When to Use Cloud-Native IaC
-
-| Tool | Use When |
-|------|----------|
-| **CloudFormation** | AWS-only shop; need native AWS support (StackSets, Service Catalog) |
-| **Bicep** | Azure-only shop; simpler syntax than ARM templates |
-| **Cloud Deployment Manager** | GCP-only; rare — most GCP teams prefer Terraform |
-
-> **Rule of thumb:** Use Terraform/OpenTofu unless you are 100% committed to a single cloud AND the cloud-native tool offers a feature Terraform cannot replicate (e.g., AWS Service Catalog integration).
+**포인트:**
+- `uv sync --frozen --no-dev` — lockfile 기준 프로덕션 의존성만 설치
+- `CMD`에서 `alembic upgrade head` → `uvicorn` 순서로 실행 (마이그레이션 먼저)
+- `${PORT:-8000}` — Render가 `PORT` 환경변수 주입
 
 ---
 
-## Troubleshooting
+## 로컬 개발 환경
 
-Check the comprehensive troubleshooting section in `references/deployment_strategies.md`.
+```bash
+# PostgreSQL 시작
+docker compose up db
+
+# 의존성 설치
+uv sync --frozen
+
+# 마이그레이션 적용
+uv run alembic upgrade head
+
+# 개발 서버 시작
+uv run uvicorn app.main:app --reload
+```
+
+---
+
+## 배포 절차
+
+```
+1. feature/* → develop PR 생성
+2. CI 통과 (backend + deployment-config 잡 모두 green)
+3. develop 머지 → Render 자동 배포 트리거
+4. Render 대시보드에서 배포 로그 확인
+5. GET /health → {"status": "ok"} 응답 확인
+```
+
+---
+
+## 롤백 절차
+
+```
+1. Render 대시보드 → ezkin-api 서비스 → Deploy History
+2. 이전 성공 배포 선택 → "Re-deploy" 클릭
+3. GET /health 재확인
+4. DB 마이그레이션 롤백이 필요한 경우:
+   uv run alembic downgrade -1
+   (이후 재배포 필요)
+```
+
+---
+
+## 트러블슈팅
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| 배포 후 500 에러 | alembic 마이그레이션 실패 | Render 로그에서 alembic 에러 확인 후 스키마 수정 |
+| 슬립 후 첫 요청 지연 | 무료 플랜 15분 슬립 | 유료 플랜 업그레이드 또는 헬스체크 ping 설정 |
+| CORS 오류 | AAC_CORS_ORIGINS 미설정 | Render 대시보드 환경변수에 JSON 배열 입력 |
+| DB 연결 실패 | PostgreSQL 90일 만료 | 새 DB 인스턴스 생성, DATABASE_URL 갱신 |
+| CI 실패 — ruff | 포맷·린트 오류 | `uv run ruff format .` 후 재커밋 |
+| CI 실패 — pytest | 테스트 실패 | 로컬에서 `uv run pytest -v` 실행 후 수정 |
