@@ -39,7 +39,9 @@ class CareRoutine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     generation_source: Mapped[str] = mapped_column(String(30))
 
 
-class RoutineStep(UUIDPrimaryKeyMixin, Base):
+class RoutineStep(
+    UUIDPrimaryKeyMixin, Base
+):  # 타임스탬프 없음: 루틴 cascade 삭제로만 생명주기 관리
     __tablename__ = "routine_steps"
     __table_args__ = (
         UniqueConstraint("routine_id", "step_order"),

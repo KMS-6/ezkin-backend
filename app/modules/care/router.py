@@ -28,7 +28,11 @@ class CareContextPreviewResponse(BaseModel):
 
 @router.post("/preview", response_model=CareContextPreviewResponse)
 async def preview_care_context(payload: CareContextPreviewRequest) -> CareContextPreviewResponse:
-    inputs = CareInputs(**payload.model_dump())
+    inputs = CareInputs(
+        humidity=payload.humidity,
+        uv_index=payload.uv_index,
+        user_reports_discomfort=payload.user_reports_discomfort,
+    )
     factors: list[ObservedFactor] = []
     if inputs.humidity is not None and inputs.humidity < 40:
         factors.append(ObservedFactor(type="low_humidity", message="오늘 습도가 낮아요."))
