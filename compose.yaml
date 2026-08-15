@@ -1,0 +1,40 @@
+name: aac
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: aac
+      POSTGRES_USER: aac
+      POSTGRES_PASSWORD: aac
+    ports:
+      - "5432:5432"
+    volumes:
+      - aac_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aac -d aac"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: .
+    environment:
+      AAC_DATABASE_URL: postgresql+asyncpg://aac:aac@db:5432/aac
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    environment:
+      AAC_DATABASE_URL: postgresql+asyncpg://aac:aac@db:5432/aac
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  aac_postgres_data:
