@@ -16,7 +16,7 @@ class SafetyCheckResponse(BaseModel):
     professional_help_suggested: bool
 
 
-URGENT_KEYWORDS = ("호흡곤란", "숨을못", "의식", "심한부종", "눈이부어")
+URGENT_KEYWORDS = ("호흡곤란", "숨을못", "숨쉬기힘", "의식", "심한부종", "눈이부어", "붓기가심")
 
 
 def _is_urgent(message: str) -> bool:
