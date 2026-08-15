@@ -2,7 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse
@@ -38,6 +38,8 @@ app.include_router(api_router, prefix=settings.api_prefix)
 
 @app.get("/docs/openapi.yaml", include_in_schema=False)
 async def openapi_document() -> FileResponse:
+    if not OPENAPI_DOCUMENT.is_file():
+        raise HTTPException(status_code=404, detail="openapi.yaml not found")
     return FileResponse(OPENAPI_DOCUMENT, media_type="application/yaml")
 
 
