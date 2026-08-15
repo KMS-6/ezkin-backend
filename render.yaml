@@ -20,6 +20,10 @@ services:
         value: "false"
       - key: AAC_CORS_ORIGINS
         sync: false
+      - key: AAC_AUTH_SECRET
+        sync: false
+      - key: AAC_ACCESS_TOKEN_TTL_SECONDS
+        value: "86400"
 
 databases:
   - name: ezkin-db
