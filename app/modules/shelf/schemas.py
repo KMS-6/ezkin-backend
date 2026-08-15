@@ -37,7 +37,6 @@ class ShelfProductUpdate(BaseModel):
     ingredients_raw: list[str] | None = None
     opened_at: date | None = None
     expires_at: date | None = None
-    is_active: bool | None = None
 
 
 class ShelfProductResponse(BaseModel):
