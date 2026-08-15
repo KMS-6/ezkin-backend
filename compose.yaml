@@ -20,8 +20,10 @@ services:
   migrate:
     build: .
     environment:
+      AAC_ENVIRONMENT: production
       AAC_DATABASE_URL: postgresql+asyncpg://aac:aac@db:5432/aac
-    command: ["uv", "run", "alembic", "upgrade", "head"]
+      AAC_AUTH_SECRET: local-compose-only-auth-secret
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
     depends_on:
       db:
         condition: service_healthy
@@ -29,7 +31,9 @@ services:
   api:
     build: .
     environment:
+      AAC_ENVIRONMENT: production
       AAC_DATABASE_URL: postgresql+asyncpg://aac:aac@db:5432/aac
+      AAC_AUTH_SECRET: local-compose-only-auth-secret
     ports:
       - "8000:8000"
     depends_on:

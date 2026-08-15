@@ -78,3 +78,29 @@ docker build -t ezkin-api:local .
 - `CareContext`, `CareRoutine`, `RoutineStep`은 스키마만 정의되어 있고 아직 쓰기 경로가 없다.
 - `Cosmetic.ai_confidence`와 `image_scan` 등록 경로는 후속 구현 대상이다.
 - 다중 인스턴스에서 공유하는 Rate Limit은 Redis 등 공유 저장소와 함께 후속 적용한다.
+
+## 9. 로컬 PostgreSQL 마이그레이션
+
+```bash
+docker compose up -d db
+docker compose run --rm migrate
+docker compose up -d api
+curl --fail --show-error http://localhost:8000/health/db
+```
+
+`/health`는 프로세스 상태만 확인하고 `/health/db`는 `SELECT 1`로 DB 연결 준비 상태를 확인한다.
+운영 환경에서는 `AAC_ENVIRONMENT=production`과 PostgreSQL `AAC_DATABASE_URL`이 모두 필요하며,
+누락되거나 SQLite URL이면 애플리케이션이 시작되지 않는다.
+
+## 10. 백업과 복구
+
+백업 파일은 저장소 밖의 접근이 제한된 디렉터리에 보관한다. 아래 명령은 로컬 Compose DB용이며
+운영 DB에서는 호스트·사용자·DB 이름을 Render Dashboard의 값으로 교체한다.
+
+```bash
+docker compose exec -T db pg_dump -U aac -d aac -Fc > ezkin.dump
+docker compose exec -T db pg_restore -U aac -d aac --clean --if-exists < ezkin.dump
+```
+
+복구는 기존 데이터를 변경하므로 먼저 별도 DB에 복원해 migration revision과 주요 행 수를 검증한 뒤
+점검 시간에 수행한다. 복구 후 `alembic current`와 `/health/db`를 확인한다.

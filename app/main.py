@@ -1,11 +1,15 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.db.session import get_db
 
 
 @asynccontextmanager
@@ -32,4 +36,16 @@ app.include_router(api_router, prefix=settings.api_prefix)
 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/db", tags=["system"])
+async def database_health(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, str]:
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        ) from exc
     return {"status": "ok"}
