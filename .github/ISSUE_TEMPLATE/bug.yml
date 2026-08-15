@@ -1,0 +1,43 @@
+name: Bug report
+description: 재현 가능의 오류를 제보합니다.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 작업 목적
+      description: 이 Issue로 해결하려는 문제를 작성해주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 재현 절차
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작과 로그
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 환경
+      placeholder: OS, Python 버전, 브랜치, 배포 환경
+  - type: textarea
+    id: notes
+    attributes:
+      label: 추가 메모

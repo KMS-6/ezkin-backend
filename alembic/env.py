@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import Connection, pool, text
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
@@ -29,10 +29,19 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection: object) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
-    with context.begin_transaction():
-        context.run_migrations()
+def do_run_migrations(connection: Connection) -> None:
+    uses_postgresql = connection.dialect.name == "postgresql"
+    if uses_postgresql:
+        connection.execute(text("SELECT pg_advisory_lock(hashtext('ezkin_alembic_migration'))"))
+    try:
+        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        with context.begin_transaction():
+            context.run_migrations()
+    finally:
+        if uses_postgresql:
+            connection.execute(
+                text("SELECT pg_advisory_unlock(hashtext('ezkin_alembic_migration'))")
+            )
 
 
 async def run_async_migrations() -> None:

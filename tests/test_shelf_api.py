@@ -34,11 +34,18 @@ async def test_user_can_manage_own_shelf_product() -> None:
                 json={"email": "shelf@example.com", "nickname": "테스터"},
             )
             assert user_response.status_code == 201
-            user_id = user_response.json()["id"]
+            access_token = user_response.json()["access_token"]
+            auth_headers = {"Authorization": f"Bearer {access_token}"}
+
+            other_user_response = await client.post(
+                "/api/v1/users",
+                json={"email": "other@example.com", "nickname": "다른 사용자"},
+            )
+            other_token = other_user_response.json()["access_token"]
 
             product_response = await client.post(
                 "/api/v1/shelf/products",
-                headers={"X-User-Id": user_id},
+                headers=auth_headers,
                 json={
                     "brand": "AAC",
                     "product_name": "보습 크림",
@@ -51,20 +58,35 @@ async def test_user_can_manage_own_shelf_product() -> None:
 
             list_response = await client.get(
                 "/api/v1/shelf/products",
-                headers={"X-User-Id": user_id},
+                headers=auth_headers,
             )
             assert list_response.status_code == 200
             assert [item["id"] for item in list_response.json()["items"]] == [product_id]
 
+            unauthenticated_response = await client.get("/api/v1/shelf/products")
+            assert unauthenticated_response.status_code == 401
+
+            tampered_response = await client.get(
+                "/api/v1/shelf/products",
+                headers={"Authorization": f"Bearer {access_token[:-1]}x"},
+            )
+            assert tampered_response.status_code == 401
+
+            other_user_response = await client.get(
+                f"/api/v1/shelf/products/{product_id}",
+                headers={"Authorization": f"Bearer {other_token}"},
+            )
+            assert other_user_response.status_code == 404
+
             delete_response = await client.delete(
                 f"/api/v1/shelf/products/{product_id}",
-                headers={"X-User-Id": user_id},
+                headers=auth_headers,
             )
             assert delete_response.status_code == 204
 
             empty_response = await client.get(
                 "/api/v1/shelf/products",
-                headers={"X-User-Id": user_id},
+                headers=auth_headers,
             )
             assert empty_response.json() == {"items": []}
     finally:
