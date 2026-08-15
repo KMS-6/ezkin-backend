@@ -27,16 +27,19 @@ EZkin Frontend
 2. `KMS-6/ezkin-backend` 저장소를 연결한다.
 3. Blueprint branch를 `develop`로 설정한다.
 4. `AAC_CORS_ORIGINS`에 실제 프런트 origin을 JSON 배열로 입력한다.
+5. `AAC_AUTH_SECRET`에 충분히 긴 무작위 비밀값을 입력한다. 저장소에 커밋하지 않는다.
 
 ```text
 ["https://<frontend-host>"]
 ```
 
+`AAC_CORS_ORIGINS`는 쉼표 구분 문자열이 아니라 JSON 배열이어야 한다.
+
 `AAC_DATABASE_URL`은 Blueprint가 `ezkin-db`의 내부 연결 문자열에서 자도 주입한다.
 
 ## 4. 배포 동작
 
-1. 컨테이너가 시작하며 `alembic upgrade head`를 실행한다.
+1. 컨테이너가 시작하며 `alembic upgrade head`를 실행한다. PostgreSQL에서는 advisory lock으로 동시 migration을 직렬화한다.
 2. Render가 주입한 `PORT`와 `0.0.0.0`에 API 서버를 바인딩한다.
 3. `/health`가 HTTP 200을 반환해야 새 배포가 유효하다.
 4. `develop`의 CI가 통과해야 자동 배포가 시작한다.
@@ -69,3 +72,9 @@ uv run pytest
 docker compose config --quiet
 docker build -t ezkin-api:local .
 ```
+
+## 8. MVP 범위와 남은 운영 과제
+
+- `CareContext`, `CareRoutine`, `RoutineStep`은 스키마만 정의되어 있고 아직 쓰기 경로가 없다.
+- `Cosmetic.ai_confidence`와 `image_scan` 등록 경로는 후속 구현 대상이다.
+- 다중 인스턴스에서 공유하는 Rate Limit은 Redis 등 공유 저장소와 함께 후속 적용한다.

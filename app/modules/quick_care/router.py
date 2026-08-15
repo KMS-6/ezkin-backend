@@ -14,7 +14,18 @@ class SafetyCheckResponse(BaseModel):
     professional_help_suggested: bool
 
 
-URGENT_KEYWORDS = ("호흡 곤란", "숨을 못", "의식", "심한 부종", "눈이 부어")
+URGENT_KEYWORDS = (
+    "호흡 곤란",
+    "호흡곤란",
+    "숨을 못",
+    "숨쉬기 힘",
+    "숨 쉬기 힘",
+    "의식",
+    "심한 부종",
+    "부종이 심",
+    "붓기가 심",
+    "눈이 부어",
+)
 
 
 @router.post("/safety-check", response_model=SafetyCheckResponse)

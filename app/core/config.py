@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     debug: bool = False
     cors_origins: list[str] = Field(default_factory=list)
+    auth_secret: SecretStr
+    access_token_ttl_seconds: int = Field(default=86400, gt=0)
 
     @field_validator("database_url")
     @classmethod

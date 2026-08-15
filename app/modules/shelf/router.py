@@ -2,10 +2,11 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import get_current_user_id
 from app.db.session import get_db
 from app.models.shelf import Cosmetic
 from app.modules.shelf.schemas import (
@@ -17,14 +18,6 @@ from app.modules.shelf.schemas import (
 )
 
 router = APIRouter(prefix="/shelf/products", tags=["my-shelf"])
-
-
-def get_current_user_id(
-    x_user_id: Annotated[UUID, Header(alias="X-User-Id")],
-) -> UUID:
-    """인증 구현 전 개발용 사용자 식별자."""
-    return x_user_id
-
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 CurrentUserId = Annotated[UUID, Depends(get_current_user_id)]
