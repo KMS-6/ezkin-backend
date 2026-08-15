@@ -10,7 +10,6 @@ from fastapi.responses import FileResponse
 from app.api.router import api_router
 from app.core.config import settings
 
-
 OPENAPI_DOCUMENT = Path(__file__).resolve().parent.parent / "docs" / "openapi.yaml"
 
 
