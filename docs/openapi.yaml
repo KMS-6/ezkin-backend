@@ -1,87 +1,259 @@
 openapi: 3.0.3
 info:
-  title: AI Skin Care API
-  version: 0.3.0
+  title: AAC API
+  version: 0.2.0
   description: |
-    AI skin condition tracking, risk assessment, personalized routines, cosmetics,
-    SOS guidance, and product recommendation API.
+    생활·환경 데이터를 활용한 비의료적 피부 관리 참고 서비스 API.
+    Non-medical skin care reference service using lifestyle and environmental data.
 
-    MVP demo/test environments use `X-Mock-Persona-Id` for user context.
-    Signup and login APIs are outside the current MVP scope.
+    Two independent identity models coexist in this API:
+
+    - **Bearer 사용자** (`/api/v1/users`, `/api/v1/shelf/products`): 실제 회원가입 후
+      발급되는 서명된 액세스 토큰. `Authorization: Bearer <token>`으로 인증합니다.
+    - **Mock Persona** (그 외 대부분의 엔드포인트): demo/test 프로파일 전용의 사전 시드된
+      가상 사용자. `X-Mock-Persona-Id` 헤더로 페르소나를 선택합니다. 유효하지 않거나
+      누락된 값은 `400 mock_persona_required`를 반환합니다. `GET /personas`로 사용
+      가능한 ID 목록을 조회할 수 있습니다.
+
+    관리자 전용 엔드포인트(`/admin/**`)는 `X-Admin-Key` 헤더가 필요합니다. 파트너
+    webhook(`/integrations/health-data`)은 `X-Partner-Key` 헤더가 필요합니다.
+
+    **AI/ML 미구현 안내:** 카메라 기반 이미지 분석 모델, 공통 지식(RAG) 검색, SOS
+    챗봇의 LLM 응답 보완 로직은 아직 연동되지 않았습니다. 해당 경로는 명확한 실패
+    상태(`model_not_implemented`, `common_knowledge: null`, `501 Not Implemented`)로
+    응답하며, 그 외의 모든 로직(문진 기반 채점, 위험도·브리핑 규칙, 성분 매칭, 패턴
+    상관관계, FAQ 매칭 등)은 규칙 기반으로 실제 동작합니다.
 servers:
-  - url: https://api.skincare-app.com/api/v1
-    description: Production
-  - url: http://localhost:8000/api/v1
-    description: Local development
+  - url: /
+    description: Current host
 tags:
-  - { name: Onboarding, description: Profile and consent setup }
-  - { name: Skin Scans, description: Skin scan analysis }
-  - { name: Metrics, description: Health and daily metrics }
-  - { name: Risk, description: Daily risk assessment }
-  - { name: Briefings, description: Personalized daily guidance }
-  - { name: Cosmetics, description: Owned cosmetics and ingredients }
-  - { name: SOS, description: Pattern analysis and SOS chat }
-  - { name: Recommendations, description: Product recommendations }
-  - { name: Admin, description: Administrative catalog APIs }
+  - { name: users, description: User registration and access token issuance (Bearer) }
+  - { name: my-shelf, description: The Bearer user's registered cosmetic products }
+  - { name: care, description: Environmental care-context preview (Bearer-free) }
+  - { name: quick-care, description: Safety-check gate before AI guidance (Bearer-free) }
+  - { name: system, description: Health check }
+  - { name: personas, description: Mock persona catalog (demo/test only) }
+  - { name: onboarding, description: Profile, consents, and feature availability }
+  - { name: skin-scans, description: Skin scan submission and analysis status }
+  - { name: metrics, description: Health and daily metrics }
+  - { name: risk, description: Daily risk assessment and periodic reports }
+  - { name: briefings, description: Personalized daily guidance and routines }
+  - { name: cosmetics, description: Owned cosmetics and ingredient catalog }
+  - { name: triggers, description: Pattern analysis and SOS chat }
+  - { name: recommendations, description: Contextual product recommendations }
+  - { name: admin-knowledge, description: Common-knowledge (RAG) source management }
+  - { name: feedback, description: Feedback on generated Report/Briefing/SOS content }
 paths:
-  /onboarding/skin-concerns:
+  # ── Bearer 사용자 (기존 구현) ────────────────────────────────────────────
+  /api/v1/users:
+    post:
+      tags: [users]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: User created; includes bearer access token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserRegistrationResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/shelf/products:
+    post:
+      tags: [my-shelf]
+      summary: Register a cosmetic product on the shelf
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShelfProductCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShelfProductResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
     get:
-      tags: [Onboarding]
-      summary: List skin concerns
+      tags: [my-shelf]
+      summary: List the current user's shelf products
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Shelf products, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShelfProductListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/v1/shelf/products/{product_id}:
+    parameters:
+      - { name: product_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [my-shelf]
+      summary: Get a shelf product
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Shelf product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShelfProductResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [my-shelf]
+      summary: Update a shelf product
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ShelfProductUpdate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShelfProductResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [my-shelf]
+      summary: Soft-delete a shelf product
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/care-contexts/preview:
+    post:
+      tags: [care]
+      summary: Preview today's care mode from environmental inputs
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CareContextPreviewRequest' }
+      responses:
+        '200':
+          description: Observed environmental factors and the suggested care mode
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CareContextPreviewResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/quick-care/safety-check:
+    post:
+      tags: [quick-care]
+      summary: Check a user message for urgent symptoms before AI guidance
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SafetyCheckRequest' }
+      responses:
+        '200':
+          description: Whether to continue with general guidance or stop and refer out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SafetyCheckResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /health:
+    get:
+      tags: [system]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { status: { type: string, example: ok } }
+
+  # ── Mock Persona 도메인 ────────────────────────────────────────────────
+  /api/v1/personas:
+    get:
+      tags: [personas]
+      summary: List mock personas available for demo/test use
+      security: []
+      responses:
+        '200':
+          description: Persona catalog
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaListResponse' }
+  /api/v1/personas/{persona_id}:
+    get:
+      tags: [personas]
+      summary: Get a persona's traits and per-feature data availability
+      security: []
+      parameters:
+        - { name: persona_id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Persona detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonaDetailResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/onboarding/skin-concerns:
+    get:
+      tags: [onboarding]
+      summary: List the skin-concern catalog
       security: []
       responses:
         '200':
           description: Skin concern catalog
           content:
             application/json:
-              schema:
-                type: object
-                required: [concerns]
-                properties:
-                  concerns:
-                    type: array
-                    items: { $ref: '#/components/schemas/SkinConcern' }
-  /onboarding/profile:
+              schema: { $ref: '#/components/schemas/SkinConcernListResponse' }
+  /api/v1/onboarding/profile:
     post:
-      tags: [Onboarding]
+      tags: [onboarding]
       summary: Save onboarding profile
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      security: [{ mockPersonaAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/OnboardingProfile' }
+            schema: { $ref: '#/components/schemas/OnboardingProfileIn' }
       responses:
         '200':
           description: Saved
           content:
             application/json:
-              schema:
-                type: object
-                properties: { onboarding_completed: { type: boolean, example: true } }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /consents:
+              schema: { $ref: '#/components/schemas/OnboardingProfileResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/consents:
     get:
-      tags: [Onboarding]
-      summary: Get consent states
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [onboarding]
+      summary: Get consent states (defaults to unconsented/null if never set)
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '200':
           description: Consent states
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  consents:
-                    type: array
-                    items: { $ref: '#/components/schemas/Consent' }
-  /consents/{consent_type}:
+              schema: { $ref: '#/components/schemas/ConsentListResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/consents/{consent_type}:
     put:
-      tags: [Onboarding]
+      tags: [onboarding]
       summary: Update consent
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
         - name: consent_type
           in: path
           required: true
@@ -90,63 +262,63 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [consented]
-              properties: { consented: { type: boolean } }
+            schema: { $ref: '#/components/schemas/ConsentUpdateIn' }
       responses:
         '200':
           description: Updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Consent' }
+              schema: { $ref: '#/components/schemas/ConsentOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /me/feature-availability:
+  /api/v1/me/feature-availability:
     get:
-      tags: [Onboarding]
-      summary: Get feature availability
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [onboarding]
+      summary: Get per-feature availability (rule-based on consent + data coverage)
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '200':
           description: Availability by feature
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  features:
-                    type: array
-                    items: { $ref: '#/components/schemas/FeatureAvailability' }
-  /skin-scans:
+              schema: { $ref: '#/components/schemas/FeatureAvailabilityListResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+
+  /api/v1/skin-scans:
     post:
-      tags: [Skin Scans]
-      summary: Submit skin scan or questionnaire
+      tags: [skin-scans]
+      summary: Submit a skin scan (camera or questionnaire)
+      description: |
+        `camera` uploads always accept (202) and store the image, but resolve to
+        `status: failed`, `failure.code: model_not_implemented` — no image
+        classification model is connected yet. `questionnaire` submissions are
+        scored deterministically from answer severities and resolve to
+        `status: completed` with `lower_accuracy: true`.
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
-        - $ref: '#/components/parameters/IdempotencyKey'
+        - { $ref: '#/components/parameters/IdempotencyKey' }
       requestBody:
         required: true
         content:
           multipart/form-data:
             schema: { $ref: '#/components/schemas/SkinScanRequest' }
-            encoding:
-              answers: { contentType: application/json }
       responses:
         '202':
-          description: Analysis accepted
+          description: Accepted (status always "processing" in this envelope; poll GET for the result)
           headers:
             Location: { schema: { type: string } }
             Retry-After: { schema: { type: integer, example: 3 } }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SkinScanAccepted' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
     get:
-      tags: [Skin Scans]
+      tags: [skin-scans]
       summary: List skin scans
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
         - { name: from, in: query, schema: { type: string, format: date } }
         - { name: to, in: query, schema: { type: string, format: date } }
         - { name: cursor, in: query, schema: { type: string } }
@@ -156,493 +328,921 @@ paths:
           description: Newest first, ordered by captured_at and scan_id descending
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SkinScanList' }
+              schema: { $ref: '#/components/schemas/SkinScanListResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /skin-scans/{scan_id}:
+  /api/v1/skin-scans/{scan_id}:
     get:
-      tags: [Skin Scans]
+      tags: [skin-scans]
       summary: Get skin scan status and result
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
-        - { name: scan_id, in: path, required: true, schema: { type: string } }
+        - { name: scan_id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '200':
-          description: Processing, completed, or failed result
+          description: Completed or failed result (this API resolves scans synchronously)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SkinScanResult' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /integrations/health-data:
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/v1/integrations/health-data:
     post:
-      tags: [Metrics]
+      tags: [metrics]
       summary: Receive partner health-data webhook
-      security: [{ partnerKey: [] }]
-      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      security: [{ partnerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/HealthData' }
+            schema: { $ref: '#/components/schemas/HealthDataIn' }
       responses:
         '200':
           description: Received
           content:
             application/json:
-              schema:
-                type: object
-                properties: { received: { type: boolean, example: true } }
+              schema: { $ref: '#/components/schemas/HealthDataReceived' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-  /daily-metrics/manual:
+        '422':
+          description: user_token does not match a known persona, or schema validation failed
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+  /api/v1/daily-metrics/manual:
     post:
-      tags: [Metrics]
-      summary: Upsert manual daily metric
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [metrics]
+      summary: Upsert manual daily metric (hydration/diet), keyed by metric_date
+      security: [{ mockPersonaAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/DailyMetric' }
+            schema: { $ref: '#/components/schemas/DailyMetricIn' }
       responses:
         '200':
           description: Upserted
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/DailyMetric' }
+              schema: { $ref: '#/components/schemas/DailyMetricOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /risk-assessments/today:
+
+  /api/v1/risk-assessments/today:
     get:
-      tags: [Risk]
-      summary: Get today's skin risk assessment
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [risk]
+      summary: Get today's rule-based skin risk assessment (Asia/Seoul)
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '200':
           description: Risk assessment
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/RiskAssessment' }
-  /briefings/today:
+              schema: { $ref: '#/components/schemas/RiskAssessmentOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/analysis/eligibility:
     get:
-      tags: [Briefings]
-      summary: Get today's briefing
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [risk]
+      summary: Check whether enough observation days exist for a 14-day report
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '200':
-          description: Pending or ready briefing
+          description: Eligibility
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Briefing' }
-  /prescriptions/{date}:
+              schema: { $ref: '#/components/schemas/EligibilityResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/reports:
+    post:
+      tags: [risk]
+      summary: Request a 14- or 30-day period report
+      description: |
+        Generated synchronously from stored skin-scan and daily-metric data
+        (rule-based trend/average detection); the response envelope still uses
+        `status: processing` to match the documented async contract.
+        `recommendations`/`observations`/`patterns` cite real `evidence_ids`
+        (scan/metric row ids) — no common-knowledge (RAG) claims are attached.
+      security: [{ mockPersonaAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReportCreateIn' }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportAccepted' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+        '409':
+          description: insufficient_data_history — fewer than period_days of observations exist
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/reports/{report_id}:
     get:
-      tags: [Briefings]
-      summary: Get routine prescription by date
+      tags: [risk]
+      summary: Get a period report
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
-        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+        - { name: report_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportResult' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/v1/briefings/today:
+    get:
+      tags: [briefings]
+      summary: Get today's briefing (pending before 06:30 Asia/Seoul, then generated once and cached)
+      security: [{ mockPersonaAuth: [] }]
+      responses:
+        '200':
+          description: Pending or ready briefing (shape varies by `status`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BriefingResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/prescriptions/{target_date}:
+    get:
+      tags: [briefings]
+      summary: Get the routine prescription for a date (reuses that date's briefing routine)
+      security: [{ mockPersonaAuth: [] }]
+      parameters:
+        - { name: target_date, in: path, required: true, schema: { type: string, format: date } }
       responses:
         '200':
           description: Routine
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Prescription' }
+              schema: { $ref: '#/components/schemas/PrescriptionOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+        '404':
+          description: No briefing/prescription exists yet for that date
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
         '422': { $ref: '#/components/responses/ValidationError' }
-  /notifications/settings:
+  /api/v1/notifications/settings:
     patch:
-      tags: [Briefings]
+      tags: [briefings]
       summary: Update notification settings
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      security: [{ mockPersonaAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [morning_briefing_enabled]
-              properties: { morning_briefing_enabled: { type: boolean } }
+            schema: { $ref: '#/components/schemas/NotificationSettingsIn' }
       responses:
         '200':
           description: Updated
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  morning_briefing_enabled: { type: boolean }
-                  updated_at: { type: string, format: date-time }
-  /cosmetics:
+              schema: { $ref: '#/components/schemas/NotificationSettingsOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+
+  /api/v1/cosmetics:
     post:
-      tags: [Cosmetics]
-      summary: Register owned cosmetic
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [cosmetics]
+      summary: Register a cosmetic on the persona's shelf
+      security: [{ mockPersonaAuth: [] }]
       requestBody:
         required: true
         content:
           multipart/form-data:
-            schema: { $ref: '#/components/schemas/CosmeticCreate' }
+            schema: { $ref: '#/components/schemas/CosmeticCreateRequest' }
       responses:
         '201':
-          description: Registered
+          description: Registered; includes ingredient risk_alerts matched against the catalog
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CosmeticCreateResult' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '422': { $ref: '#/components/responses/ValidationError' }
     get:
-      tags: [Cosmetics]
-      summary: List owned cosmetics
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [cosmetics]
+      summary: List the persona's cosmetics
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '200':
           description: Cosmetic list
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/Cosmetic' } }
-  /cosmetics/{cosmetic_id}:
+              schema: { $ref: '#/components/schemas/CosmeticListResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/cosmetics/{cosmetic_id}:
     parameters:
-      - $ref: '#/components/parameters/MockPersona'
-      - { name: cosmetic_id, in: path, required: true, schema: { type: string } }
+      - { name: cosmetic_id, in: path, required: true, schema: { type: string, format: uuid } }
     patch:
-      tags: [Cosmetics]
-      summary: Update owned cosmetic
+      tags: [cosmetics]
+      summary: Update a cosmetic (brand/product_name reject null; product_type/ingredients_raw accept null to clear)
+      security: [{ mockPersonaAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CosmeticUpdate' }
+            schema: { $ref: '#/components/schemas/CosmeticUpdateIn' }
       responses:
         '200':
           description: Updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Cosmetic' }
+              schema: { $ref: '#/components/schemas/CosmeticOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
     delete:
-      tags: [Cosmetics]
-      summary: Delete owned cosmetic
+      tags: [cosmetics]
+      summary: Soft-delete a cosmetic
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '204': { description: Deleted }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /ingredients:
+  /api/v1/ingredients:
     get:
-      tags: [Cosmetics]
-      summary: List ingredient catalog
+      tags: [cosmetics]
+      summary: List the ingredient catalog
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
         - { name: risk_level, in: query, schema: { type: string, enum: [safe, caution] } }
-        - { name: target_concern, in: query, schema: { type: string } }
+        - { name: target_concern, in: query, schema: { type: string, description: Substring match } }
       responses:
         '200':
           description: Ingredients
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  ingredients: { type: array, items: { $ref: '#/components/schemas/Ingredient' } }
-  /admin/ingredients:
+              schema: { $ref: '#/components/schemas/IngredientListResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/admin/ingredients:
     post:
-      tags: [Admin]
-      summary: Create ingredient
-      description: Requires admin role. In MVP, the catalog may be supplied as fixtures instead.
+      tags: [cosmetics]
+      summary: Create an ingredient catalog entry
+      security: [{ adminAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/IngredientCreate' }
+            schema: { $ref: '#/components/schemas/IngredientCreateIn' }
       responses:
         '201':
           description: Created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Ingredient' }
+              schema: { $ref: '#/components/schemas/IngredientOut' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
-  /pattern-analysis:
+        '409':
+          description: ingredient_already_exists
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/v1/pattern-analysis:
     get:
-      tags: [SOS]
-      summary: Analyze patterns in the 72 hours before a scan
+      tags: [triggers]
+      summary: Rule-based correlation of the 72 hours before a completed scan
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
-        - { name: scan_id, in: query, required: true, schema: { type: string } }
+        - { name: scan_id, in: query, required: true, schema: { type: string, format: uuid } }
       responses:
         '200':
-          description: Observed correlations, not a medical diagnosis
+          description: >-
+            Observed factors and, when >=3 similar historical occurrences
+            exist, a correlation summary. `common_knowledge` is always null
+            (RAG retrieval is not implemented).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/PatternAnalysis' }
+              schema: { $ref: '#/components/schemas/PatternAnalysisOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-  /sos/sessions:
+        '409':
+          description: The scan exists but has not completed (e.g. a failed camera scan)
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/sos/sessions:
     post:
-      tags: [SOS]
-      summary: Start SOS chat session
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [triggers]
+      summary: Start an SOS chat session
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '201':
           description: Session created
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  session_id: { type: string }
-                  quick_replies: { type: array, items: { type: string } }
-  /sos/sessions/{session_id}/messages:
+              schema: { $ref: '#/components/schemas/SosSessionOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/sos/sessions/{session_id}/messages:
     post:
-      tags: [SOS]
-      summary: Send SOS chat message
+      tags: [triggers]
+      summary: Send an SOS chat message
+      description: |
+        Urgent keywords are caught by a deterministic safety filter first
+        (`reply_type: safety`). Otherwise a small rule-based FAQ catalog is
+        matched by keyword (`reply_type: answer`). If neither applies, the
+        request would need the (unimplemented) low-confidence LLM slot-filling
+        fallback, so the API returns `501 Not Implemented` instead of a reply.
+      security: [{ mockPersonaAuth: [] }]
       parameters:
-        - $ref: '#/components/parameters/MockPersona'
-        - { name: session_id, in: path, required: true, schema: { type: string } }
+        - { name: session_id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [message]
-              properties: { message: { type: string, minLength: 1 } }
+            schema: { $ref: '#/components/schemas/SosMessageIn' }
       responses:
         '200':
-          description: Safety-filtered reply
+          description: Rule-based reply
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SosReply' }
+              schema: { $ref: '#/components/schemas/SosMessageOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /recommendations:
+        '501':
+          description: No safety/FAQ rule matched; LLM fallback is not implemented
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+
+  /api/v1/recommendations:
     get:
-      tags: [Recommendations]
-      summary: Get matching product recommendations
-      parameters: [{ $ref: '#/components/parameters/MockPersona' }]
+      tags: [recommendations]
+      summary: Get product recommendations matched to onboarding concerns and the latest scan
+      security: [{ mockPersonaAuth: [] }]
       responses:
         '200':
           description: Recommendations
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  recommendations: { type: array, items: { $ref: '#/components/schemas/Recommendation' } }
-  /admin/products:
+              schema: { $ref: '#/components/schemas/RecommendationListResponse' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+  /api/v1/admin/products:
     post:
-      tags: [Admin]
-      summary: Create recommendation product
+      tags: [recommendations]
+      summary: Create a recommendation product
+      security: [{ adminAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ProductCreate' }
+            schema: { $ref: '#/components/schemas/ProductCreateIn' }
       responses:
         '201':
           description: Created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Product' }
+              schema: { $ref: '#/components/schemas/ProductOut' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '409': { $ref: '#/components/responses/Conflict' }
+        '409':
+          description: product_already_exists
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
     get:
-      tags: [Admin]
+      tags: [recommendations]
       summary: List recommendation products
+      security: [{ adminAuth: [] }]
       responses:
         '200':
           description: Product catalog
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/Product' } }
+              schema: { $ref: '#/components/schemas/ProductListResponse' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/knowledge/documents:
+    post:
+      tags: [admin-knowledge]
+      summary: Register a source document (starts in review_status=draft)
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KnowledgeDocumentCreateIn' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeDocumentOut' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/admin/knowledge/documents/{document_id}/approve:
+    post:
+      tags: [admin-knowledge]
+      summary: Approve a document's Claim Card (sets review_status=approved)
+      security: [{ adminAuth: [] }]
+      parameters:
+        - { name: document_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClaimApproveIn' }
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeDocumentOut' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/admin/knowledge/documents/{document_id}:
+    get:
+      tags: [admin-knowledge]
+      summary: Get a document's metadata and claim/review status
+      security: [{ adminAuth: [] }]
+      parameters:
+        - { name: document_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Document
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeDocumentOut' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/admin/knowledge/indexes:
+    post:
+      tags: [admin-knowledge]
+      summary: Snapshot all approved claim_ids into a new index version
+      security: [{ adminAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KnowledgeIndexCreateIn' }
+      responses:
+        '201':
+          description: Created (not yet active)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeIndexOut' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/admin/knowledge/indexes/{version}/activate:
+    post:
+      tags: [admin-knowledge]
+      summary: Activate an index version (deactivates all others)
+      security: [{ adminAuth: [] }]
+      parameters:
+        - { name: version, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Activated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeIndexOut' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/generations/{generation_id}/feedback:
+    post:
+      tags: [feedback]
+      summary: Submit feedback on a generated Report/Briefing/SOS-message
+      security: [{ mockPersonaAuth: [] }]
+      parameters:
+        - { name: generation_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FeedbackIn' }
+      responses:
+        '201':
+          description: Recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedbackOut' }
+        '400': { $ref: '#/components/responses/MockPersonaRequired' }
+        '404':
+          description: generation_id does not exist or is not owned by this persona
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
 components:
   securitySchemes:
-    partnerKey: { type: apiKey, in: header, name: X-Partner-Key }
-  parameters:
-    MockPersona:
-      name: X-Mock-Persona-Id
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token returned by POST /api/v1/users
+    mockPersonaAuth:
+      type: apiKey
       in: header
-      required: false
-      description: Required for user-scoped APIs in MVP demo/test profiles.
-      schema: { type: string, example: persona_001 }
+      name: X-Mock-Persona-Id
+      description: One of the ids returned by GET /api/v1/personas (demo/test only)
+    adminAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+    partnerAuth:
+      type: apiKey
+      in: header
+      name: X-Partner-Key
+  parameters:
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
-      description: Unique for 24 hours within the authenticated subject and endpoint.
+      description: Unique for 24 hours within the subject and endpoint; replays the first response for the same key+payload, 409s on key reuse with a different payload.
       schema: { type: string, example: 550e8400-e29b-41d4-a716-446655440000 }
   responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    MockPersonaRequired:
+      description: Missing or unrecognized X-Mock-Persona-Id header
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
     Forbidden:
-      description: Insufficient role or permission
+      description: Missing or invalid X-Admin-Key
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
     NotFound:
       description: Resource does not exist or is not owned by the caller
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
     Conflict:
-      description: Duplicate, idempotency conflict, or state conflict
+      description: Duplicate resource or idempotency-key conflict
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
     ValidationError:
-      description: Semantic or schema validation failed
-      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
-    RateLimited:
-      description: Request rate exceeded
-      headers: { Retry-After: { schema: { type: integer } } }
+      description: Request failed schema or semantic validation
       content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
   schemas:
     ErrorResponse:
       type: object
-      required: [error]
+      required: [detail]
       properties:
-        error:
-          type: object
-          required: [code, message, request_id]
-          properties:
-            code: { type: string, example: validation_error }
-            message: { type: string }
-            details: { nullable: true }
-            request_id: { type: string, example: req_123 }
-    SkinConcern:
+        detail: { type: string, example: 유효한 인증 정보가 필요합니다. }
+
+    # ── Bearer 사용자 ──
+    UserCreate:
       type: object
-      required: [id, label]
-      properties: { id: { type: string }, label: { type: string } }
-    OnboardingProfile:
+      required: [email, nickname]
+      properties:
+        email: { type: string, format: email }
+        nickname: { type: string, minLength: 1, maxLength: 50 }
+    UserResponse:
+      type: object
+      required: [id, email, nickname, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        nickname: { type: string }
+        created_at: { type: string, format: date-time }
+    UserRegistrationResponse:
+      type: object
+      required: [user, access_token, token_type]
+      properties:
+        user: { $ref: '#/components/schemas/UserResponse' }
+        access_token: { type: string }
+        token_type: { type: string, default: bearer, example: bearer }
+    ShelfProductCreate:
+      type: object
+      required: [brand, product_name, product_type]
+      properties:
+        brand: { type: string, minLength: 1, maxLength: 100 }
+        product_name: { type: string, minLength: 1, maxLength: 200 }
+        product_type: { type: string, enum: [cleanser, toner, serum, moisturizer, sunscreen, mask] }
+        ingredients_raw: { type: array, items: { type: string }, nullable: true }
+        image_key: { type: string, maxLength: 500, nullable: true }
+        registration_source: { type: string, enum: [manual, image_scan], default: manual }
+        opened_at: { type: string, format: date, nullable: true }
+        expires_at: { type: string, format: date, nullable: true }
+    ShelfProductUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        brand: { type: string, minLength: 1, maxLength: 100 }
+        product_name: { type: string, minLength: 1, maxLength: 200 }
+        product_type: { type: string, enum: [cleanser, toner, serum, moisturizer, sunscreen, mask] }
+        ingredients_raw: { type: array, items: { type: string }, nullable: true }
+        opened_at: { type: string, format: date, nullable: true }
+        expires_at: { type: string, format: date, nullable: true }
+    ShelfProductResponse:
+      type: object
+      required:
+        - id
+        - brand
+        - product_name
+        - product_type
+        - ingredients_raw
+        - image_key
+        - registration_source
+        - user_verified_at
+        - opened_at
+        - expires_at
+        - is_active
+        - created_at
+        - updated_at
+      properties:
+        id: { type: string, format: uuid }
+        brand: { type: string }
+        product_name: { type: string }
+        product_type: { type: string }
+        ingredients_raw: { type: array, items: { type: string }, nullable: true }
+        image_key: { type: string, nullable: true }
+        registration_source: { type: string }
+        user_verified_at: { type: string, format: date-time, nullable: true }
+        opened_at: { type: string, format: date, nullable: true }
+        expires_at: { type: string, format: date, nullable: true }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ShelfProductListResponse:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ShelfProductResponse' } }
+    CareContextPreviewRequest:
       type: object
       properties:
-        skin_concern_ids: { type: array, items: { type: string }, default: [] }
-        birth_year: { type: integer }
-        menstrual_cycle_tracking: { type: boolean }
-    Consent:
+        humidity: { type: number, format: float, nullable: true }
+        uv_index: { type: number, format: float, nullable: true }
+        user_reports_discomfort: { type: boolean, default: false }
+    CareContextPreviewResponse:
       type: object
-      required: [type, consented]
+      required: [date, care_mode, observed_factors, notice]
       properties:
-        type: { type: string, enum: [apple_health, weather_location] }
-        consented: { type: boolean }
-        updated_at: { type: string, format: date-time, nullable: true }
+        date: { type: string, format: date }
+        care_mode:
+          type: string
+          enum: [basic, moisture_focused, soothing_focused, uv_focused, minimal_routine]
+        observed_factors:
+          type: array
+          items:
+            type: object
+            required: [type, message]
+            properties: { type: { type: string }, message: { type: string } }
+        notice: { type: string }
+    SafetyCheckRequest:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string, minLength: 1, maxLength: 1000 }
+    SafetyCheckResponse:
+      type: object
+      required: [action, reply, professional_help_suggested]
+      properties:
+        action: { type: string, enum: [continue_general_guidance, stop_ai_guidance] }
+        reply: { type: string }
+        professional_help_suggested: { type: boolean }
+
+    # ── Personas ──
     FeatureAvailability:
       type: object
       required: [feature, status]
       properties:
-        feature: { type: string }
-        status: { type: string, enum: [normal, limited, unavailable] }
+        feature: { type: string, enum: [risk_assessment_health, risk_assessment_weather, pattern_analysis] }
+        status: { type: string, enum: [normal, limited] }
         reason: { type: string }
         fallback: { type: string }
-    QuestionnaireAnswer:
+    PersonaSummary:
       type: object
-      required: [question_id, value]
+      required: [id, label, summary_traits]
       properties:
-        question_id: { type: string, enum: [redness, tightness, oiliness, new_lesions] }
-        value: { type: string, enum: [none, mild, moderate, severe] }
+        id: { type: string }
+        label: { type: string }
+        summary_traits: { type: object, additionalProperties: true }
+    PersonaListResponse:
+      type: object
+      required: [personas]
+      properties:
+        personas: { type: array, items: { $ref: '#/components/schemas/PersonaSummary' } }
+    PersonaDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/PersonaSummary'
+        - type: object
+          required: [features]
+          properties:
+            features: { type: array, items: { $ref: '#/components/schemas/FeatureAvailability' } }
+
+    # ── Onboarding ──
+    SkinConcern:
+      type: object
+      required: [id, label]
+      properties: { id: { type: string }, label: { type: string } }
+    SkinConcernListResponse:
+      type: object
+      required: [concerns]
+      properties:
+        concerns: { type: array, items: { $ref: '#/components/schemas/SkinConcern' } }
+    OnboardingProfileIn:
+      type: object
+      properties:
+        skin_concern_ids: { type: array, items: { type: string }, default: [] }
+        birth_year: { type: integer, nullable: true }
+        menstrual_cycle_tracking: { type: boolean, nullable: true }
+    OnboardingProfileResponse:
+      type: object
+      required: [onboarding_completed]
+      properties: { onboarding_completed: { type: boolean, example: true } }
+    ConsentOut:
+      type: object
+      required: [type, consented, updated_at]
+      properties:
+        type: { type: string, enum: [apple_health, weather_location] }
+        consented: { type: boolean }
+        updated_at: { type: string, format: date-time, nullable: true }
+    ConsentListResponse:
+      type: object
+      required: [consents]
+      properties:
+        consents: { type: array, items: { $ref: '#/components/schemas/ConsentOut' } }
+    ConsentUpdateIn:
+      type: object
+      required: [consented]
+      properties: { consented: { type: boolean } }
+    FeatureAvailabilityListResponse:
+      type: object
+      required: [features]
+      properties:
+        features: { type: array, items: { $ref: '#/components/schemas/FeatureAvailability' } }
+
+    # ── Skin scans ──
     SkinScanRequest:
       type: object
       required: [captured_at]
       properties:
         capture_method: { type: string, enum: [camera, questionnaire], default: camera }
-        image: { type: string, format: binary, description: JPEG, PNG, or HEIC; max 10 MiB }
-        questionnaire_version: { type: string, enum: [v1] }
+        image: { type: string, format: binary, description: JPEG, PNG, or HEIC; max 10 MiB; required for capture_method=camera }
+        questionnaire_version: { type: string, enum: [v1], description: Required for capture_method=questionnaire }
         answers:
           type: string
-          description: JSON-stringified QuestionnaireAnswer array for multipart submission.
+          description: JSON-stringified array of {question_id, value}; required for capture_method=questionnaire. redness/tightness/oiliness required, new_lesions optional.
           example: '[{"question_id":"redness","value":"mild"}]'
         captured_at: { type: string, format: date-time }
-        lighting_ok: { type: boolean }
-      description: Camera requires image. Questionnaire requires questionnaire_version and answers.
+        lighting_ok: { type: boolean, nullable: true }
     SkinScanAccepted:
       type: object
       required: [scan_id, status, capture_method, status_url]
       properties:
-        scan_id: { type: string }
+        scan_id: { type: string, format: uuid }
         status: { type: string, enum: [processing], example: processing }
         capture_method: { type: string, enum: [camera, questionnaire] }
         status_url: { type: string }
+    SkinScanFailure:
+      type: object
+      required: [code, message, retryable]
+      properties:
+        code: { type: string, example: model_not_implemented }
+        message: { type: string }
+        retryable: { type: boolean }
     SkinScanResult:
       type: object
-      required: [scan_id, status]
+      required: [scan_id, status, capture_method, created_at, lower_accuracy]
       properties:
-        scan_id: { type: string }
-        status: { type: string, enum: [processing, completed, failed] }
+        scan_id: { type: string, format: uuid }
+        status: { type: string, enum: [completed, failed] }
         capture_method: { type: string, enum: [camera, questionnaire] }
         created_at: { type: string, format: date-time }
-        retry_after_seconds: { type: integer }
         lower_accuracy: { type: boolean }
-        scores: { type: object, additionalProperties: { type: number, format: float, minimum: 0, maximum: 1 } }
-        delta_vs_previous: { type: object, additionalProperties: { type: string } }
-        limitation_notice: { type: string }
-        failure:
-          type: object
-          properties:
-            code: { type: string }
-            message: { type: string }
-            retryable: { type: boolean }
-    SkinScanList:
+        scores: { type: object, additionalProperties: { type: number, format: float, minimum: 0, maximum: 1 }, nullable: true }
+        delta_vs_previous: { type: object, additionalProperties: { type: number, format: float }, nullable: true }
+        limitation_notice: { type: string, nullable: true }
+        failure: { $ref: '#/components/schemas/SkinScanFailure' }
+    SkinScanListItem:
+      type: object
+      required: [scan_id, status, captured_at]
+      properties:
+        scan_id: { type: string, format: uuid }
+        status: { type: string, enum: [completed, failed] }
+        captured_at: { type: string, format: date-time }
+    SkinScanListResponse:
       type: object
       required: [items, has_more]
       properties:
-        items:
-          type: array
-          items:
-            type: object
-            properties:
-              scan_id: { type: string }
-              status: { type: string, enum: [processing, completed, failed] }
-              captured_at: { type: string, format: date-time }
+        items: { type: array, items: { $ref: '#/components/schemas/SkinScanListItem' } }
         next_cursor: { type: string, nullable: true }
         has_more: { type: boolean }
-    HealthData:
+
+    # ── Metrics ──
+    HealthDataIn:
       type: object
       required: [user_token, metric_date]
       properties:
-        user_token: { type: string }
+        user_token: { type: string, description: Must match an existing persona id in this MVP }
         metric_date: { type: string, format: date }
-        sleep_hours: { type: number, format: float, minimum: 0 }
-        hrv_ms: { type: number, format: float, minimum: 0 }
-        active_energy_kcal: { type: number, format: float, minimum: 0 }
-    DailyMetric:
+        sleep_hours: { type: number, format: float, minimum: 0, nullable: true }
+        hrv_ms: { type: number, format: float, minimum: 0, nullable: true }
+        active_energy_kcal: { type: number, format: float, minimum: 0, nullable: true }
+    HealthDataReceived:
+      type: object
+      required: [received]
+      properties: { received: { type: boolean, example: true } }
+    DailyMetricIn:
       type: object
       required: [metric_date]
       properties:
         metric_date: { type: string, format: date }
-        hydration_level: { type: string, enum: [low, normal, high] }
-        diet_flag: { type: string, enum: [normal, spicy, late_night_meal, alcohol] }
-        updated_at: { type: string, format: date-time, readOnly: true }
-    RiskAssessment:
+        hydration_level: { type: string, enum: [low, normal, high], nullable: true }
+        diet_flag: { type: string, enum: [normal, spicy, late_night_meal, alcohol], nullable: true }
+    DailyMetricOut:
       type: object
-      required: [date, risk_level, contributing_factors, limitation_notice]
+      required: [metric_date, hydration_level, diet_flag, updated_at]
+      properties:
+        metric_date: { type: string, format: date }
+        hydration_level: { type: string, nullable: true }
+        diet_flag: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+
+    # ── Risk / reports ──
+    RiskAssessmentOut:
+      type: object
+      required: [date, risk_level, risk_levels_enum, contributing_factors, limitation_notice]
       properties:
         date: { type: string, format: date }
         risk_level: { type: string, enum: [low, moderate, high, very_high] }
-        risk_levels_enum: { type: array, items: { type: string }, readOnly: true }
+        risk_levels_enum: { type: array, items: { type: string } }
         contributing_factors: { type: array, items: { type: string } }
         limitation_notice: { type: string }
+    EligibilityResponse:
+      type: object
+      required: [available_days, required_days, eligible, missing_inputs]
+      properties:
+        available_days: { type: integer }
+        required_days: { type: integer, example: 14 }
+        eligible: { type: boolean }
+        missing_inputs: { type: array, items: { type: string } }
+    ReportCreateIn:
+      type: object
+      required: [period_days]
+      properties:
+        period_days: { type: integer, enum: [14, 30] }
+        end_date: { type: string, format: date, nullable: true }
+        locale: { type: string, default: ko-KR }
+    ReportAccepted:
+      type: object
+      required: [report_id, status, status_url]
+      properties:
+        report_id: { type: string, format: uuid }
+        status: { type: string, enum: [processing], example: processing }
+        status_url: { type: string }
+    ReportEvidence:
+      type: object
+      required: [text, evidence_ids]
+      properties:
+        text: { type: string }
+        evidence_ids: { type: array, items: { type: string } }
+    ReportResult:
+      type: object
+      required: [report_id, status]
+      properties:
+        report_id: { type: string, format: uuid }
+        status: { type: string, enum: [completed] }
+        period: { type: object, additionalProperties: true, nullable: true }
+        summary: { type: string, nullable: true }
+        observations: { type: array, items: { $ref: '#/components/schemas/ReportEvidence' }, nullable: true }
+        patterns: { type: array, items: { $ref: '#/components/schemas/ReportEvidence' }, nullable: true }
+        recommendations: { type: array, items: { $ref: '#/components/schemas/ReportEvidence' }, nullable: true }
+        limitations: { type: string, nullable: true }
+        safety_status: { type: string, nullable: true }
+        generated_at: { type: string, format: date-time, nullable: true }
+
+    # ── Briefings / prescriptions ──
     RoutineStep:
       type: object
-      required: [order, name]
+      required: [order, cosmetic_id, name]
       properties:
         order: { type: integer }
-        action: { type: string }
-        cosmetic_id: { type: string }
+        cosmetic_id: { type: string, format: uuid }
         name: { type: string }
         note: { type: string, nullable: true }
-    Briefing:
+    SkipItem:
+      type: object
+      required: [cosmetic_id, name, reason]
+      properties:
+        cosmetic_id: { type: string, format: uuid }
+        name: { type: string }
+        reason: { type: string }
+    BriefingResponse:
       type: object
       required: [status, date]
+      description: When status=pending, only date/generation_expected_at/previous_briefing are present.
       properties:
         status: { type: string, enum: [pending, ready] }
         date: { type: string, format: date }
         risk_level: { type: string, enum: [low, moderate, high, very_high] }
         headline: { type: string }
         summary: { type: string }
-        contributing_factors: { type: array, items: { type: object, additionalProperties: true } }
+        contributing_factors:
+          type: array
+          items: { type: object, required: [type, text], properties: { type: { type: string }, text: { type: string } } }
         routine: { type: array, items: { $ref: '#/components/schemas/RoutineStep' } }
-        skip: { type: array, items: { type: string } }
-        common_knowledge: { type: object, additionalProperties: true }
+        skip: { type: array, items: { $ref: '#/components/schemas/SkipItem' } }
+        common_knowledge: { type: object, nullable: true, description: Always null — RAG retrieval is not implemented }
         data_coverage: { type: object, additionalProperties: { type: boolean } }
         limitation_notice: { type: string }
         generated_at: { type: string, format: date-time }
-        sent_at: { type: string, format: date-time }
+        sent_at: { type: string, format: date-time, nullable: true }
         generation_expected_at: { type: string, format: date-time }
-        previous_briefing: { type: object, additionalProperties: true }
-    Prescription:
+        previous_briefing:
+          type: object
+          nullable: true
+          properties:
+            date: { type: string, format: date }
+            risk_level: { type: string }
+            headline: { type: string }
+    PrescriptionOut:
       type: object
       required: [date, steps, avoid, disclaimer]
       properties:
@@ -650,102 +1250,271 @@ components:
         steps: { type: array, items: { $ref: '#/components/schemas/RoutineStep' } }
         avoid: { type: array, items: { type: string } }
         disclaimer: { type: string }
-    CosmeticCreate:
+    NotificationSettingsIn:
       type: object
-      required: [brand, product_name]
-      properties:
-        image: { type: string, format: binary, description: JPEG, PNG, or HEIC; max 10 MiB }
-        brand: { type: string }
-        product_name: { type: string }
-        product_type: { type: string, enum: [cleanser, toner, serum, moisturizer, sunscreen] }
-        ingredients_raw: { type: array, items: { type: string } }
-    CosmeticUpdate:
+      required: [morning_briefing_enabled]
+      properties: { morning_briefing_enabled: { type: boolean } }
+    NotificationSettingsOut:
       type: object
-      minProperties: 1
+      required: [morning_briefing_enabled, updated_at]
       properties:
-        brand: { type: string }
-        product_name: { type: string }
-        product_type: { type: string, enum: [cleanser, toner, serum, moisturizer, sunscreen], nullable: true }
-        ingredients_raw: { type: array, items: { type: string }, nullable: true }
-    Cosmetic:
-      allOf:
-        - $ref: '#/components/schemas/CosmeticCreate'
-        - type: object
-          required: [cosmetic_id]
-          properties:
-            cosmetic_id: { type: string }
-            updated_at: { type: string, format: date-time }
+        morning_briefing_enabled: { type: boolean }
+        updated_at: { type: string, format: date-time }
+
+    # ── Cosmetics / ingredients ──
     RiskAlert:
       type: object
+      required: [ingredient, risk_level, target_concern]
       properties:
         ingredient: { type: string }
         risk_level: { type: string, enum: [caution] }
         target_concern: { type: string }
+    CosmeticCreateRequest:
+      type: object
+      required: [brand, product_name]
+      properties:
+        image: { type: string, format: binary, description: JPEG, PNG, or HEIC; max 10 MiB (optional) }
+        brand: { type: string, minLength: 1, maxLength: 100 }
+        product_name: { type: string, minLength: 1, maxLength: 200 }
+        product_type: { type: string, enum: [cleanser, toner, serum, moisturizer, sunscreen, mask] }
+        ingredients_raw: { type: string, description: JSON-stringified string array, example: '["살리실산", "글리세린"]' }
     CosmeticCreateResult:
       type: object
+      required: [cosmetic_id, matched_ingredients, risk_alerts]
       properties:
-        cosmetic_id: { type: string }
+        cosmetic_id: { type: string, format: uuid }
         matched_ingredients: { type: array, items: { type: string } }
         risk_alerts: { type: array, items: { $ref: '#/components/schemas/RiskAlert' } }
-    IngredientCreate:
+    CosmeticOut:
+      type: object
+      required: [cosmetic_id, brand, product_name, product_type, ingredients_raw, updated_at]
+      properties:
+        cosmetic_id: { type: string, format: uuid }
+        brand: { type: string }
+        product_name: { type: string }
+        product_type: { type: string, nullable: true }
+        ingredients_raw: { type: array, items: { type: string }, nullable: true }
+        updated_at: { type: string, format: date-time }
+    CosmeticListResponse:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/CosmeticOut' } }
+    CosmeticUpdateIn:
+      type: object
+      minProperties: 1
+      properties:
+        brand: { type: string, minLength: 1, maxLength: 100, nullable: true, description: 'null is rejected (422)' }
+        product_name: { type: string, minLength: 1, maxLength: 200, nullable: true, description: 'null is rejected (422)' }
+        product_type: { type: string, enum: [cleanser, toner, serum, moisturizer, sunscreen, mask], nullable: true, description: 'null clears the field' }
+        ingredients_raw: { type: array, items: { type: string }, nullable: true, description: 'null clears the field' }
+    IngredientOut:
+      type: object
+      required: [id, name, risk_level, target_concern, description]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        risk_level: { type: string, enum: [safe, caution] }
+        target_concern: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+    IngredientListResponse:
+      type: object
+      required: [ingredients]
+      properties:
+        ingredients: { type: array, items: { $ref: '#/components/schemas/IngredientOut' } }
+    IngredientCreateIn:
       type: object
       required: [name, risk_level]
       properties:
         name: { type: string }
         risk_level: { type: string, enum: [safe, caution] }
-        target_concern: { type: string }
-        description: { type: string }
-    Ingredient:
-      allOf:
-        - $ref: '#/components/schemas/IngredientCreate'
-        - type: object
-          required: [id]
-          properties: { id: { type: string } }
-    PatternAnalysis:
+        target_concern: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+
+    # ── Triggers (pattern analysis + SOS) ──
+    PatternWindow:
       type: object
+      required: [start, end]
       properties:
-        scan_id: { type: string }
-        window:
-          type: object
-          properties:
-            start: { type: string, format: date-time }
-            end: { type: string, format: date-time }
-        observed_patterns: { type: array, items: { type: string } }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+    RawFact:
+      type: object
+      required: [type, text]
+      properties: { type: { type: string }, text: { type: string } }
+    ObservedPattern:
+      type: object
+      required: [text, sample_size, match_count]
+      properties:
+        text: { type: string }
+        sample_size: { type: integer }
+        match_count: { type: integer }
+    PatternAnalysisOut:
+      type: object
+      required: [scan_id, window, raw_facts, disclaimer]
+      properties:
+        scan_id: { type: string, format: uuid }
+        window: { $ref: '#/components/schemas/PatternWindow' }
+        raw_facts: { type: array, items: { $ref: '#/components/schemas/RawFact' } }
+        observed_pattern:
+          allOf: [{ $ref: '#/components/schemas/ObservedPattern' }]
+          nullable: true
+          description: null unless >=3 similar historical condition-days exist
+        common_knowledge: { type: object, nullable: true, description: Always null — RAG retrieval is not implemented }
         disclaimer: { type: string }
-    SosReply:
+    SosSessionOut:
       type: object
-      required: [message_id, reply_type, reply]
+      required: [session_id, quick_replies]
       properties:
-        message_id: { type: string }
-        reply_type: { type: string, enum: [answer, safety, clarification] }
+        session_id: { type: string, format: uuid }
+        quick_replies: { type: array, items: { type: string } }
+    SosMessageIn:
+      type: object
+      required: [message]
+      properties: { message: { type: string, minLength: 1 } }
+    SosMessageOut:
+      type: object
+      required: [message_id, reply_type, reply, referenced_cosmetic_ids, expert_referral_suggested]
+      properties:
+        message_id: { type: string, format: uuid }
+        reply_type: { type: string, enum: [answer, safety] }
         reply: { type: string }
-        matched_faq: { type: object, nullable: true, additionalProperties: true }
-        decision: { type: object, nullable: true, additionalProperties: true }
+        matched_faq:
+          type: object
+          nullable: true
+          properties: { faq_id: { type: string }, version: { type: integer } }
         referenced_cosmetic_ids: { type: array, items: { type: string } }
-        used_contexts: { type: array, items: { type: string } }
         safety_flag: { type: string, nullable: true }
         expert_referral_suggested: { type: boolean }
-        options: { type: array, items: { type: string } }
-    Recommendation:
+
+    # ── Recommendations ──
+    RecommendationOut:
       type: object
       required: [product_id, name, reason, external_url]
       properties:
-        product_id: { type: string }
+        product_id: { type: string, format: uuid }
         name: { type: string }
         reason: { type: string }
         external_url: { type: string, format: uri }
-    ProductCreate:
+    RecommendationListResponse:
+      type: object
+      required: [recommendations]
+      properties:
+        recommendations: { type: array, items: { $ref: '#/components/schemas/RecommendationOut' } }
+    ProductCreateIn:
       type: object
       required: [name, brand, external_url]
       properties:
         name: { type: string }
         brand: { type: string }
-        category: { type: string }
+        category: { type: string, nullable: true }
         external_url: { type: string, format: uri }
         safety_policy_note: { type: string, nullable: true }
-    Product:
-      allOf:
-        - $ref: '#/components/schemas/ProductCreate'
-        - type: object
-          required: [product_id]
-          properties: { product_id: { type: string } }
+    ProductOut:
+      type: object
+      required: [product_id, name, brand, category, external_url, safety_policy_note]
+      properties:
+        product_id: { type: string, format: uuid }
+        name: { type: string }
+        brand: { type: string }
+        category: { type: string, nullable: true }
+        external_url: { type: string, format: uri }
+        safety_policy_note: { type: string, nullable: true }
+    ProductListResponse:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ProductOut' } }
+
+    # ── Admin knowledge (RAG source metadata) ──
+    KnowledgeDocumentCreateIn:
+      type: object
+      required: [source_url, title, collected_at]
+      properties:
+        source_url: { type: string }
+        title: { type: string }
+        collected_at: { type: string, format: date-time }
+        license: { type: string, nullable: true }
+        source_type_note: { type: string, nullable: true }
+    ClaimApproveIn:
+      type: object
+      required:
+        - claim_id
+        - claim_version
+        - topic
+        - population
+        - evidence_level
+        - allowed_features
+        - required_user_facts
+        - allowed_expressions
+        - forbidden_expressions
+        - next_review_at
+      properties:
+        claim_id: { type: string }
+        claim_version: { type: integer }
+        topic: { type: string }
+        population: { type: string }
+        evidence_level: { type: string }
+        allowed_features: { type: array, items: { type: string } }
+        required_user_facts: { type: array, items: { type: string } }
+        allowed_expressions: { type: string }
+        forbidden_expressions: { type: string }
+        next_review_at: { type: string, format: date-time }
+    KnowledgeDocumentOut:
+      type: object
+      required: [id, source_url, title, collected_at, review_status]
+      properties:
+        id: { type: string, format: uuid }
+        source_url: { type: string }
+        title: { type: string }
+        collected_at: { type: string, format: date-time }
+        license: { type: string, nullable: true }
+        review_status: { type: string, enum: [draft, approved] }
+        claim_id: { type: string, nullable: true }
+        claim_version: { type: integer, nullable: true }
+        topic: { type: string, nullable: true }
+        population: { type: string, nullable: true }
+        evidence_level: { type: string, nullable: true }
+        allowed_features: { type: array, items: { type: string }, nullable: true }
+        required_user_facts: { type: array, items: { type: string }, nullable: true }
+        next_review_at: { type: string, format: date-time, nullable: true }
+    KnowledgeIndexCreateIn:
+      type: object
+      required: [version]
+      properties: { version: { type: string } }
+    KnowledgeIndexOut:
+      type: object
+      required: [version, claim_ids, is_active]
+      properties:
+        version: { type: string }
+        claim_ids: { type: array, items: { type: string } }
+        is_active: { type: boolean }
+
+    # ── Feedback ──
+    FeedbackIn:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: string, enum: [helpful, not_helpful] }
+        reason_code:
+          type: string
+          nullable: true
+          enum:
+            - helpful
+            - not_helpful
+            - factually_wrong
+            - not_personalized
+            - too_alarmist
+            - unsafe_medical_expression
+            - wrong_product
+            - missing_context
+        comment: { type: string, nullable: true }
+    FeedbackOut:
+      type: object
+      required: [id, generation_id, rating]
+      properties:
+        id: { type: string, format: uuid }
+        generation_id: { type: string }
+        rating: { type: string }
+        reason_code: { type: string, nullable: true }
+        comment: { type: string, nullable: true }
