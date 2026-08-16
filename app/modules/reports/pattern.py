@@ -52,8 +52,8 @@ async def analyze_pattern(
     surrounding_result = await db.execute(surrounding_stmt)
     surrounding_scans = surrounding_result.scalars().all()
 
-    # 원시 사실 구성
-    all_scans = [scan] + list(surrounding_scans)
+    # 원시 사실 구성 (시간순 정렬)
+    all_scans = sorted([scan] + list(surrounding_scans), key=lambda s: s.captured_at)
     raw_facts = _build_raw_facts(all_scans)
 
     # 동시발생 패턴 감지 (임계값 이상일 때만)

@@ -74,7 +74,7 @@ async def aggregate_scans(
     rows: list[dict[str, Any]] = []
     for d, score_list in sorted(by_date.items()):
         if score_list:
-            keys = score_list[0].keys()
+            keys = sorted({k for s in score_list for k in s.keys()})
             avg = {k: sum(s.get(k, 0) for s in score_list) / len(score_list) for k in keys}
             rows.append({"metric_date": d, "avg_scores": avg})
         else:

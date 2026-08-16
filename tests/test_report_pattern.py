@@ -109,6 +109,27 @@ class TestAnalyzePattern:
         result = await analyze_pattern(db_session, "persona_b1_eunji", scan.id)
         assert result["observed_pattern"] is None
 
+    async def test_observed_pattern_detected_when_threshold_met(self, db_session: AsyncSession):
+        """동시발생 3회 이상이면 observed_pattern 문자열 반환"""
+        center = date(2026, 8, 15)
+        scan = await _add_scan(
+            db_session,
+            "persona_b1_eunji",
+            _dt(center),
+            scores={"flushing": 0.7},
+        )
+        for i in range(2):
+            await _add_scan(
+                db_session,
+                "persona_b1_eunji",
+                _dt(center) - timedelta(hours=10 * (i + 1)),
+                scores={"flushing": 0.6},
+            )
+
+        result = await analyze_pattern(db_session, "persona_b1_eunji", scan.id)
+        assert result["observed_pattern"] is not None
+        assert "3회 관찰" in result["observed_pattern"]
+
     async def test_common_knowledge_is_null(self, db_session: AsyncSession):
         center = date(2026, 8, 15)
         scan = await _add_scan(

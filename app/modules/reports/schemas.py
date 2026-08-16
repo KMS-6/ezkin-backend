@@ -42,7 +42,7 @@ class ReportResult(BaseModel):
     recommendations: list[str]
     limitations: list[str]
     safety_status: str
-    generated_at: datetime
+    generated_at: datetime | None = None
 
 
 # --- Pattern Analysis ---
