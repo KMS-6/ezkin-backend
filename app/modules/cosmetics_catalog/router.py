@@ -12,7 +12,7 @@ from app.core.mock_persona import get_persona_id
 from app.core.storage import save_upload
 from app.db.session import get_db
 from app.models.cosmetic_catalog import Ingredient, PersonaCosmetic
-from app.modules.cosmetics_catalog.matching import match_ingredient_risks
+from app.modules.cosmetics_catalog.matching import load_ingredient_catalog, match_ingredient_risks
 from app.modules.cosmetics_catalog.schemas import (
     CosmeticCreateResult,
     CosmeticListResponse,
@@ -81,7 +81,8 @@ async def create_cosmetic(
     db.add(cosmetic)
     await db.flush()
 
-    matched_ids, risk_alerts = await match_ingredient_risks(db, parsed_ingredients)
+    catalog = await load_ingredient_catalog(db)
+    matched_ids, risk_alerts = match_ingredient_risks(parsed_ingredients, catalog)
     await db.commit()
 
     return CosmeticCreateResult(

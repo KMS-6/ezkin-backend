@@ -12,4 +12,5 @@ async def require_partner_key(x_partner_key: Annotated[str | None, Header()] = N
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효한 X-Partner-Key가 필요합니다.",
+            headers={"WWW-Authenticate": 'ApiKey realm="partner"'},
         )

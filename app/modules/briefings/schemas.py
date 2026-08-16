@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class RoutineStep(BaseModel):
     order: int
+    action: str = "use"
     cosmetic_id: str
     name: str
     note: str | None = None

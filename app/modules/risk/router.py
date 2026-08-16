@@ -62,6 +62,9 @@ async def get_analysis_eligibility(db: DbSession, persona_id: PersonaId) -> Elig
     )
 
 
+# 202 Accepted + status="processing"은 비동기 API 스펙 규격을 충족하기 위한 것으로, 실제로는
+# 워커 큐 없이 이 요청 트랜잭션 내에서 규칙 기반으로 즉시 status="completed"까지 계산해
+# 커밋하는 동기 mock 처리다. 실제 비동기 분석 파이프라인 연동 전까지의 의도된 동작.
 @router.post("/reports", response_model=ReportAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def create_report(
     payload: ReportCreateIn, db: DbSession, persona_id: PersonaId

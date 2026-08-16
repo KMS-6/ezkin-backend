@@ -65,7 +65,7 @@ async def receive_health_data(
     await db.flush()
 
     response = HealthDataReceived()
-    await store_idempotency(
+    cached = await store_idempotency(
         db,
         scope="health-data",
         subject=payload.user_token,
@@ -74,6 +74,8 @@ async def receive_health_data(
         response_status=status.HTTP_200_OK,
         response_body=response.model_dump(),
     )
+    if cached is not None:
+        return HealthDataReceived(**cached)
     await db.commit()
     return response
 

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -52,7 +53,15 @@ async def store_idempotency(
     payload: dict,
     response_status: int,
     response_body: dict,
-) -> None:
+) -> dict | None:
+    """Persist the idempotency record. Returns None on success.
+
+    If a concurrent request already committed a record for the same key first
+    (TOCTOU race between check_idempotency and here), rolls back this
+    request's side effects and returns the winning request's cached response
+    body instead, so the caller can replay it rather than 500 on the
+    UniqueConstraint violation.
+    """
     db.add(
         IdempotencyRecord(
             scope=scope,
@@ -63,4 +72,12 @@ async def store_idempotency(
             response_body=response_body,
         )
     )
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        cached = await check_idempotency(db, scope=scope, subject=subject, key=key, payload=payload)
+        if cached is not None:
+            return cached
+        raise
+    return None

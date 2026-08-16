@@ -79,6 +79,9 @@ async def _latest_completed_scan(db: AsyncSession, persona_id: str) -> SkinScan 
     return result.scalar_one_or_none()
 
 
+# 202 Accepted + status="processing"은 비동기 API 스펙 규격을 충족하기 위한 것으로, 실제로는
+# 워커 큐 없이 이 요청 트랜잭션 내에서 즉시 status="completed"(questionnaire) 또는
+# status="failed"(camera, 비전 모델 미연동)까지 계산해 커밋하는 동기 mock 처리다.
 @router.post("", response_model=SkinScanAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def create_skin_scan(
     db: DbSession,
@@ -176,7 +179,7 @@ async def create_skin_scan(
         capture_method=scan.capture_method,
         status_url=status_url,
     )
-    await store_idempotency(
+    cached = await store_idempotency(
         db,
         scope="skin_scans:create",
         subject=persona_id,
@@ -185,6 +188,11 @@ async def create_skin_scan(
         response_status=status.HTTP_202_ACCEPTED,
         response_body=result.model_dump(),
     )
+    if cached is not None:
+        response.headers["Location"] = cached["status_url"]
+        response.headers["Retry-After"] = "3"
+        return SkinScanAccepted(**cached)
+
     await db.commit()
 
     response.headers["Location"] = status_url

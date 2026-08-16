@@ -3,12 +3,13 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.briefing import Briefing
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.generation import Generation
-from app.modules.cosmetics_catalog.matching import match_ingredient_risks
+from app.modules.cosmetics_catalog.matching import load_ingredient_catalog, match_ingredient_risks
 from app.modules.risk.logic import load_today_risk_context
 
 KST = ZoneInfo("Asia/Seoul")
@@ -61,6 +62,7 @@ async def build_routine(
         )
     )
     cosmetics = sorted(result.scalars(), key=lambda c: _product_type_rank(c.product_type))
+    catalog = await load_ingredient_catalog(db)
 
     high_risk_day = risk_level in {"high", "very_high"}
     routine: list[dict] = []
@@ -68,7 +70,7 @@ async def build_routine(
     order = 1
     for cosmetic in cosmetics:
         name = f"{cosmetic.brand} {cosmetic.product_name}"
-        _, risk_alerts = await match_ingredient_risks(db, cosmetic.ingredients_raw)
+        _, risk_alerts = match_ingredient_risks(cosmetic.ingredients_raw, catalog)
         if high_risk_day and risk_alerts:
             caution_names = ", ".join(alert["ingredient"] for alert in risk_alerts)
             skip.append(
@@ -163,7 +165,18 @@ async def get_or_generate_briefing(db: AsyncSession, persona_id: str) -> Briefin
         sent_at=now_kst,
     )
     db.add(briefing)
-    await db.flush()
-    db.add(Generation(id=briefing.generation_id, persona_id=persona_id, kind="briefing"))
-    await db.commit()
+    try:
+        await db.flush()
+        db.add(Generation(id=briefing.generation_id, persona_id=persona_id, kind="briefing"))
+        await db.commit()
+    except IntegrityError:
+        # Concurrent request for the same persona/day won the race and already
+        # committed a briefing; replay that one instead of 500ing.
+        await db.rollback()
+        existing = await db.execute(
+            select(Briefing).where(
+                Briefing.persona_id == persona_id, Briefing.briefing_date == today
+            )
+        )
+        return existing.scalar_one_or_none()
     return briefing
