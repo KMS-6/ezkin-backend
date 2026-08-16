@@ -25,6 +25,8 @@ class SosMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     reply_type: Mapped[str] = mapped_column(String(20))
     reply: Mapped[str] = mapped_column(String(1000))
     matched_faq: Mapped[dict | None] = mapped_column(JSON)
+    decision: Mapped[dict | None] = mapped_column(JSON)
     referenced_cosmetic_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    used_contexts: Mapped[list[str]] = mapped_column(JSON, default=list)
     safety_flag: Mapped[str | None] = mapped_column(String(50))
     expert_referral_suggested: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.models.generation import Generation
 from app.models.skin_scan import SkinScan
 from app.models.sos import SosMessage, SosSession
-from app.modules.triggers.logic import build_pattern_analysis, is_urgent, match_faq
+from app.modules.triggers.logic import build_chat_reply, build_pattern_analysis
 from app.modules.triggers.schemas import (
     PatternAnalysisOut,
     SosMessageIn,
@@ -60,31 +60,20 @@ async def send_sos_message(
             status_code=status.HTTP_404_NOT_FOUND, detail="세션을 찾을 수 없습니다."
         )
 
-    if is_urgent(payload.message):
-        reply_type = "safety"
-        reply = "앱의 일반 관리 안내 범위를 벗어납니다. 즉시 의료기관에 문의해 주세요."
-        safety_flag = "urgent_symptom"
-        referral = True
-        matched_faq = None
-    else:
-        faq = match_faq(payload.message)
-        if faq is None:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="규칙 기반 응답을 찾지 못했습니다. LLM 보완 로직은 미연동입니다.",
-            )
-        reply_type, reply, safety_flag, referral = "answer", faq["reply"], None, False
-        matched_faq = {"faq_id": faq["faq_id"], "version": faq["version"]}
+    result = await build_chat_reply(db, persona_id, payload.message)
 
     message = SosMessage(
         session_id=session.id,
         persona_id=persona_id,
         message=payload.message,
-        reply_type=reply_type,
-        reply=reply,
-        matched_faq=matched_faq,
-        safety_flag=safety_flag,
-        expert_referral_suggested=referral,
+        reply_type=result["reply_type"],
+        reply=result["reply"],
+        matched_faq=result["matched_faq"],
+        decision=result["decision"],
+        referenced_cosmetic_ids=result["referenced_cosmetic_ids"],
+        used_contexts=result["used_contexts"],
+        safety_flag=result["safety_flag"],
+        expert_referral_suggested=result["expert_referral_suggested"],
     )
     db.add(message)
     await db.flush()
@@ -96,7 +85,9 @@ async def send_sos_message(
         reply_type=message.reply_type,
         reply=message.reply,
         matched_faq=message.matched_faq,
+        decision=message.decision,
         referenced_cosmetic_ids=message.referenced_cosmetic_ids,
+        used_contexts=message.used_contexts,
         safety_flag=message.safety_flag,
         expert_referral_suggested=message.expert_referral_suggested,
     )
