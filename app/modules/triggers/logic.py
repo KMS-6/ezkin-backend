@@ -8,11 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.metrics import DailyMetric
 from app.models.skin_scan import SkinScan
+from app.models.sos import SosMessage
 from app.modules.risk.logic import load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
-from app.modules.triggers.nlu import INGREDIENT_ALIASES, parse_message
+from app.modules.triggers.nlu import BODY_AREA_ALIASES, INGREDIENT_ALIASES, parse_message
 
 PATTERN_WINDOW_HOURS = 72
+PATTERN_HISTORY_DAYS = 90
 IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal", "alcohol"}
 ELEVATED_THRESHOLD = 0.66
 MIN_SAMPLE_SIZE = 3
@@ -59,6 +61,45 @@ MEDICATION_ACTION_STEMS = ("끊", "중단", "용량")
 # 대체품 탐색용 별칭만 여기 남긴다 — 사용자가 메시지에서 언급하는 개체가 아니라 My Shelf
 # 제품의 속성이라 파서의 관심사가 아니다.
 SOOTHING_ALIASES = ("판테놀", "병풀", "센텔라", "세라마이드", "알로에", "히알루론")
+
+# 11.5절 INGREDIENT_INTERACTIONS의 축소판 — 승인된 쌍만 등록한다. 여기 없는 조합은
+# "함께 사용해도 안전하다"고 단정하지 않는다(CB-08, 검증된 규칙이 없으면 안전 단정 금지).
+INGREDIENT_INTERACTIONS: list[dict] = [
+    {
+        "pair": frozenset({"retinol", "vitamin_c"}),
+        "rule_id": "rule_retinol_vitaminc_avoid",
+        "faq_id": "faq_retinol_vitaminc_combo",
+        "owned_guidance": "같은 루틴에서 함께 사용하면 자극 가능성이 있어요. 아침·저녁으로 나누어 "
+        "사용해 보세요.",
+        "general_guidance": "자극 가능성이 있는 조합으로 분류돼요",
+    },
+    {
+        "pair": frozenset({"retinol", "salicylic_acid"}),
+        "rule_id": "rule_retinol_salicylic_avoid",
+        "faq_id": "faq_retinol_salicylic_combo",
+        "owned_guidance": "두 성분 모두 각질 턴오버를 촉진해 함께 사용하면 자극 가능성이 있어요. "
+        "아침·저녁으로 나누어 사용해 보세요.",
+        "general_guidance": "자극 가능성이 있는 조합으로 분류돼요",
+    },
+]
+
+
+def _find_interaction(ingredient_ids: list[str]) -> dict | None:
+    mentioned = set(ingredient_ids)
+    for entry in INGREDIENT_INTERACTIONS:
+        if entry["pair"] <= mentioned:
+            return entry
+    return None
+
+
+def _owns_product_type(
+    cosmetics: list[PersonaCosmetic], product_type: str
+) -> PersonaCosmetic | None:
+    for cosmetic in cosmetics:
+        if cosmetic.product_type == product_type:
+            return cosmetic
+    return None
+
 
 # 8.2절 초기 기준: >=0.80 즉시 채택, 0.60~0.79는 1·2위 차이가 충분할 때만 채택, 미만이면
 # 재질문·fallback. 실제 계산식·threshold는 21절에서 "Mock Data 평가셋으로 조정" 대상으로
@@ -121,24 +162,34 @@ def _faq_score(normalized_query: str, entry: dict) -> float:
     return round(min(score, 1.0), 2)
 
 
-def search_faq(message: str) -> list[tuple[float, dict]]:
-    """모든 FAQ 후보를 점수 순으로 정렬해 반환한다(점수 0 초과만)."""
+def search_faq(message: str, candidates: list[dict] | None = None) -> list[tuple[float, dict]]:
+    """후보 FAQ를 점수 순으로 정렬해 반환한다(점수 0 초과만). `candidates`를 생략하면
+    전체 FAQ_ENTRIES에서 찾는다."""
     normalized = _normalize(message)
-    scored = [
-        (score, entry) for entry in FAQ_ENTRIES if (score := _faq_score(normalized, entry)) > 0
-    ]
+    pool = candidates if candidates is not None else FAQ_ENTRIES
+    scored = [(score, entry) for entry in pool if (score := _faq_score(normalized, entry)) > 0]
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return scored
 
 
-def resolve_faq(message: str) -> dict:
-    """8.2절 검색 순서 4~6단계: 점수를 합산해 1위 후보를 고르되, 기준 미달이거나
-    1·2위가 모호하면 임의로 답변하지 않는다(CB-03, CB-04).
+def resolve_faq(message: str, intent: str | None = None) -> dict:
+    """8.2절 검색 순서 2·4~6단계: intent로 후보를 먼저 좁힌 뒤 점수를 합산해 1위를
+    고르되, 기준 미달이거나 1·2위가 모호하면 임의로 답변하지 않는다(CB-03, CB-04).
+
+    intent로 좁힌 후보에서 아무것도 못 찾으면(점수 0 초과 후보가 없으면) intent 분류가
+    틀렸을 가능성을 감안해 전체 FAQ에서 다시 찾는다 — intent 좁히기가 오히려 커버리지를
+    줄이는 회귀를 막기 위함이다.
 
     반환값: {"selected": FAQ|None, "score": float, "candidates": [FAQ, ...]}.
     `candidates`는 1·2위가 모호해 재질문이 필요할 때만 채워진다.
     """
-    ranked = search_faq(message)
+    narrowed = None
+    if intent and intent != "unknown":
+        narrowed = [entry for entry in FAQ_ENTRIES if entry.get("intent") == intent]
+
+    ranked = search_faq(message, narrowed) if narrowed else []
+    if not ranked:
+        ranked = search_faq(message)
     if not ranked:
         return {"selected": None, "score": 0.0, "candidates": []}
 
@@ -177,6 +228,8 @@ def _answer(
     match_score: float,
     referenced: list[str],
     used_contexts: list[str],
+    intent: str,
+    parse_confidence: float,
     decision: dict | None = None,
 ) -> dict:
     return {
@@ -188,6 +241,8 @@ def _answer(
         "used_contexts": used_contexts,
         "safety_flag": None,
         "expert_referral_suggested": False,
+        "intent": intent,
+        "parse_confidence": parse_confidence,
     }
 
 
@@ -224,8 +279,12 @@ async def build_pattern_analysis(db: AsyncSession, scan: SkinScan) -> dict:
             }
         )
 
+    history_start = (window_end - timedelta(days=PATTERN_HISTORY_DAYS)).date()
     all_metrics_result = await db.execute(
-        select(DailyMetric).where(DailyMetric.persona_id == scan.persona_id)
+        select(DailyMetric).where(
+            DailyMetric.persona_id == scan.persona_id,
+            DailyMetric.metric_date >= history_start,
+        )
     )
     condition_days = [
         m
@@ -235,7 +294,9 @@ async def build_pattern_analysis(db: AsyncSession, scan: SkinScan) -> dict:
 
     all_scans_result = await db.execute(
         select(SkinScan).where(
-            SkinScan.persona_id == scan.persona_id, SkinScan.status == "completed"
+            SkinScan.persona_id == scan.persona_id,
+            SkinScan.status == "completed",
+            SkinScan.captured_at >= window_end - timedelta(days=PATTERN_HISTORY_DAYS),
         )
     )
     all_scans = list(all_scans_result.scalars())
@@ -303,6 +364,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "used_contexts": [],
             "safety_flag": "self_harm",
             "expert_referral_suggested": True,
+            "intent": "high_risk_symptom",
+            "parse_confidence": 1.0,
         }
 
     if is_urgent(message):
@@ -315,6 +378,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "used_contexts": [],
             "safety_flag": "urgent_symptom",
             "expert_referral_suggested": True,
+            "intent": "high_risk_symptom",
+            "parse_confidence": 1.0,
         }
 
     if is_supplement_question(message):
@@ -328,6 +393,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "used_contexts": [],
             "safety_flag": None,
             "expert_referral_suggested": False,
+            "intent": "out_of_scope",
+            "parse_confidence": 1.0,
         }
 
     if is_medication_question(message):
@@ -341,44 +408,62 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "used_contexts": [],
             "safety_flag": None,
             "expert_referral_suggested": True,
+            "intent": "out_of_scope",
+            "parse_confidence": 1.0,
         }
 
     owned = await _load_owned_cosmetics(db, persona_id)
     parsed = parse_message(message)
     mentioned_ingredients = parsed.entities["ingredient_names"]
-    mentions_retinol = "retinol" in mentioned_ingredients
-    mentions_vitamin_c = "vitamin_c" in mentioned_ingredients
 
-    # 9절 규칙 예시: 레티놀+비타민C 조합은 승인된 상호작용 규칙(avoid_same_routine)만 사용한다.
-    if mentions_retinol and mentions_vitamin_c:
-        retinol_product = _owns_ingredient(owned, INGREDIENT_ALIASES["retinol"])
-        vitamin_c_product = _owns_ingredient(owned, INGREDIENT_ALIASES["vitamin_c"])
-        if retinol_product and vitamin_c_product:
-            reply = (
-                f"{_product_label(retinol_product)}와(과) {_product_label(vitamin_c_product)}는 "
-                "같은 루틴에서 함께 사용하면 자극 가능성이 있어요. 아침·저녁으로 나누어 "
-                "사용해 보세요."
+    # 9절 규칙 예시 + 11.5절 INGREDIENT_INTERACTIONS: 2개 이상 성분이 언급되면 승인된
+    # 상호작용 규칙이 있는 조합만 avoid_same_routine으로 안내하고, 없으면 안전하다고
+    # 단정하지 않는다(CB-08).
+    if len(mentioned_ingredients) >= 2:
+        interaction = _find_interaction(mentioned_ingredients)
+        if interaction is not None:
+            id_a, id_b = sorted(interaction["pair"])
+            product_a = _owns_ingredient(owned, INGREDIENT_ALIASES[id_a])
+            product_b = _owns_ingredient(owned, INGREDIENT_ALIASES[id_b])
+            if product_a and product_b:
+                reply = (
+                    f"{_product_label(product_a)}와(과) {_product_label(product_b)}는 "
+                    f"{interaction['owned_guidance']}"
+                )
+                referenced = [str(product_a.id), str(product_b.id)]
+            else:
+                name_a, name_b = INGREDIENT_ALIASES[id_a][0], INGREDIENT_ALIASES[id_b][0]
+                reply = (
+                    f"{name_a}과 {name_b} 조합은 {interaction['general_guidance']}. 등록된 "
+                    "화장품에서 두 성분을 모두 확인하지 못해 My Shelf에 등록하면 더 정확히 "
+                    "안내할 수 있어요."
+                )
+                referenced = [str(c.id) for c in (product_a, product_b) if c]
+            return _answer(
+                reply,
+                faq_id=interaction["faq_id"],
+                version=1,
+                match_score=0.9,
+                referenced=referenced,
+                used_contexts=["owned_products"],
+                decision={"rule_id": interaction["rule_id"], "code": "AVOID_SAME_ROUTINE"},
+                intent=parsed.intent,
+                parse_confidence=parsed.parse_confidence,
             )
-            referenced = [str(retinol_product.id), str(vitamin_c_product.id)]
-        else:
-            reply = (
-                "레티놀과 비타민C 조합은 자극 가능성이 있는 조합으로 분류돼요. 등록된 "
-                "화장품에서 두 성분을 모두 확인하지 못해 함께 사용해도 안전하다고 단정할 수 "
-                "없어요. My Shelf에 성분을 등록하면 더 정확히 안내할 수 있어요."
-            )
-            referenced = [str(c.id) for c in (retinol_product, vitamin_c_product) if c]
         return _answer(
-            reply,
-            faq_id="faq_retinol_vitaminc_combo",
+            "언급하신 성분 조합은 검증된 상호작용 규칙이 없어 사용 가능 여부를 단정하기 "
+            "어려워요. 각각 다른 시간대에 나누어 사용하는 것을 권장해요.",
+            faq_id="faq_unverified_combination",
             version=1,
-            match_score=0.9,
-            referenced=referenced,
-            used_contexts=["owned_products"],
-            decision={"rule_id": "rule_retinol_vitaminc_avoid", "code": "AVOID_SAME_ROUTINE"},
+            match_score=0.7,
+            referenced=[],
+            used_contexts=[],
+            intent=parsed.intent,
+            parse_confidence=parsed.parse_confidence,
         )
 
     # 9절 규칙 예시: 레티놀 보유 + 고위험이면 오늘 사용을 생략하고 진정/보습 대체 제품을 찾는다.
-    if mentions_retinol:
+    if "retinol" in mentioned_ingredients:
         retinol_product = _owns_ingredient(owned, INGREDIENT_ALIASES["retinol"])
         if retinol_product is None:
             return _answer(
@@ -389,6 +474,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
                 match_score=0.85,
                 referenced=[],
                 used_contexts=["owned_products"],
+                intent=parsed.intent,
+                parse_confidence=parsed.parse_confidence,
             )
 
         risk_level, factors = await _load_today_risk(db, persona_id)
@@ -420,6 +507,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
                 referenced=referenced,
                 used_contexts=used_contexts,
                 decision={"rule_id": "rule_retinol_high_risk", "code": "SKIP_PRODUCT"},
+                intent=parsed.intent,
+                parse_confidence=parsed.parse_confidence,
             )
 
         return _answer(
@@ -431,9 +520,102 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             referenced=[str(retinol_product.id)],
             used_contexts=used_contexts,
             decision={"rule_id": "rule_retinol_normal_risk", "code": "USE_PRODUCT"},
+            intent=parsed.intent,
+            parse_confidence=parsed.parse_confidence,
         )
 
-    resolved = resolve_faq(message)
+    # 2절 원칙: 새 제품 구매를 우선 권하지 않고 보유 화장품을 먼저 활용한다.
+    if parsed.intent == "product_alternative":
+        alternative = _owns_ingredient(owned, SOOTHING_ALIASES)
+        if alternative is not None:
+            reply = (
+                f"등록된 제품 중에서는 {_product_label(alternative)}가 진정·보습 목적으로 "
+                "참고할 만해요."
+            )
+            referenced = [str(alternative.id)]
+            decision = {"rule_id": "rule_alternative_from_shelf", "code": "USE_PRODUCT"}
+        else:
+            reply = (
+                "등록된 화장품에서 진정·보습 목적의 제품을 확인하지 못했어요. My Shelf에 보유 "
+                "제품을 등록하면 있는 제품 중에서 먼저 안내할 수 있어요."
+            )
+            referenced = []
+            decision = None
+        return _answer(
+            reply,
+            faq_id="faq_product_alternative",
+            version=1,
+            match_score=0.85,
+            referenced=referenced,
+            used_contexts=["owned_products"],
+            decision=decision,
+            intent=parsed.intent,
+            parse_confidence=parsed.parse_confidence,
+        )
+
+    if parsed.intent == "sunscreen":
+        sunscreen_product = _owns_product_type(owned, "sunscreen")
+        if sunscreen_product is not None:
+            reply = f"{_product_label(sunscreen_product)}를 2~3시간 간격으로 덧발라 주세요."
+            referenced = [str(sunscreen_product.id)]
+            used_contexts = ["owned_products"]
+        else:
+            reply = (
+                "자외선 차단제는 2~3시간 간격으로 덧바르는 것이 일반적으로 권장돼요. 등록된 "
+                "선크림이 없어 제품명은 안내하지 못해요."
+            )
+            referenced = []
+            used_contexts = []
+        return _answer(
+            reply,
+            faq_id="faq_sunscreen_reapply",
+            version=1,
+            match_score=0.85,
+            referenced=referenced,
+            used_contexts=used_contexts,
+            intent=parsed.intent,
+            parse_confidence=parsed.parse_confidence,
+        )
+
+    if parsed.intent == "skin_trouble":
+        body_area = parsed.entities["body_area"]
+        area_prefix = f"{BODY_AREA_ALIASES[body_area][0]} " if body_area is not None else ""
+        alternative = _owns_ingredient(owned, SOOTHING_ALIASES)
+        used_contexts = ["today_risk_assessment"]
+        if alternative is not None:
+            base_reply = (
+                f"{area_prefix}부위는 손으로 만지거나 짜지 않고, 등록하신 "
+                f"{_product_label(alternative)}로 자극 없이 진정해 주세요."
+            )
+            referenced = [str(alternative.id)]
+            used_contexts.append("owned_products")
+        else:
+            base_reply = (
+                f"{area_prefix}부위는 손으로 만지거나 짜지 않고, 자극이 적은 제품으로 진정 "
+                "위주로 관리해 주세요."
+            )
+            referenced = []
+
+        risk_level, factors = await _load_today_risk(db, persona_id)
+        if risk_level in ("high", "very_high") and factors:
+            reply = (
+                f"오늘은 {', '.join(factors)}이(가) 함께 관찰돼 평소보다 자극에 더 주의가 "
+                f"필요해요. {base_reply}"
+            )
+        else:
+            reply = base_reply
+        return _answer(
+            reply,
+            faq_id="faq_skin_trouble",
+            version=1,
+            match_score=0.85,
+            referenced=referenced,
+            used_contexts=used_contexts,
+            intent=parsed.intent,
+            parse_confidence=parsed.parse_confidence,
+        )
+
+    resolved = resolve_faq(message, parsed.intent)
     faq = resolved["selected"]
     if faq is not None:
         alternative = _owns_ingredient(owned, SOOTHING_ALIASES)
@@ -451,6 +633,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             match_score=resolved["score"],
             referenced=referenced,
             used_contexts=used_contexts,
+            intent=parsed.intent,
+            parse_confidence=parsed.parse_confidence,
         )
 
     # 8.2절: 1·2위 후보가 근소해 모호하면 두 후보를 놓고 선택형 재질문을 한다(CB-04).
@@ -466,6 +650,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "used_contexts": [],
             "safety_flag": None,
             "expert_referral_suggested": False,
+            "intent": parsed.intent,
+            "parse_confidence": parsed.parse_confidence,
         }
 
     # 8.2절: 일치도 기준 미달이면 임의로 답변하지 않고 재질문한다(CB-03, CB-04).
@@ -478,4 +664,44 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
         "used_contexts": [],
         "safety_flag": None,
         "expert_referral_suggested": False,
+        "intent": parsed.intent,
+        "parse_confidence": parsed.parse_confidence,
+    }
+
+
+async def compute_chat_metrics(db: AsyncSession, persona_id: str | None = None) -> dict:
+    """18.3절 운영 지표의 최소 버전. LLM 호출 경로가 아직 없어 rule_only_rate는 항상
+    1.0이다 — 지금 의미 있는 신호는 `low_confidence_rate`로, 나중에 LLM escalation을
+    연동했을 때 실제로 escalate됐을 메시지 비율의 근사치다.
+    """
+    stmt = select(SosMessage)
+    if persona_id is not None:
+        stmt = stmt.where(SosMessage.persona_id == persona_id)
+    result = await db.execute(stmt)
+    messages = list(result.scalars())
+
+    total = len(messages)
+    if total == 0:
+        return {
+            "total_messages": 0,
+            "rule_only_rate": 1.0,
+            "fallback_rate": 0.0,
+            "avg_parse_confidence": None,
+            "low_confidence_rate": 0.0,
+        }
+
+    fallback_count = sum(1 for m in messages if m.reply_type == "clarification")
+    confidences = [m.parse_confidence for m in messages if m.parse_confidence is not None]
+    low_confidence_count = sum(1 for c in confidences if c < FAQ_LOW_CONFIDENCE)
+
+    return {
+        "total_messages": total,
+        "rule_only_rate": 1.0,
+        "fallback_rate": round(fallback_count / total, 2),
+        "avg_parse_confidence": (
+            round(sum(confidences) / len(confidences), 2) if confidences else None
+        ),
+        "low_confidence_rate": (
+            round(low_confidence_count / len(confidences), 2) if confidences else 0.0
+        ),
     }
