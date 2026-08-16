@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     auth_secret: SecretStr
     access_token_ttl_seconds: int = Field(default=86400, gt=0)
+    admin_key: str = "dev-admin-key"  # AAC_ADMIN_KEY 환경변수로 오버라이드
 
     @field_validator("database_url")
     @classmethod

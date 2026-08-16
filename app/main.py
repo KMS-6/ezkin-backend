@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.modules.knowledge.internal_router import router as internal_knowledge_router
 
 
 @asynccontextmanager
@@ -28,6 +29,7 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 app.include_router(api_router, prefix=settings.api_prefix)
+app.include_router(internal_knowledge_router)
 
 
 @app.get("/health", tags=["system"])
