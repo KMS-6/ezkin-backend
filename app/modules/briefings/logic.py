@@ -8,13 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.briefing import Briefing
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.generation import Generation
-from app.models.metrics import DailyMetric
-from app.models.onboarding import Consent
-from app.models.skin_scan import SkinScan
 from app.modules.cosmetics_catalog.matching import match_ingredient_risks
-from app.modules.risk.logic import compute_risk
+from app.modules.risk.logic import load_today_risk_context
 
 KST = ZoneInfo("Asia/Seoul")
+NO_COSMETICS_NOTICE = (
+    "등록된 화장품이 없어 일반적인 관리 방법만 안내해요. My Shelf에 제품을 등록하면 더 "
+    "구체적으로 안내할 수 있어요."
+)
+NO_FITTING_COSMETIC_NOTICE = (
+    "오늘 조건에 맞는 등록 제품을 확인하기 어려워요. 일반적인 관리 방법을 참고해 주세요."
+)
+LIMITED_ACCURACY_NOTICE = " HRV 데이터가 충분히 쌓이지 않아 정확도가 제한된 상태예요."
 BRIEFING_READY_TIME = time(6, 30)
 PRODUCT_TYPE_ORDER = ["cleanser", "toner", "serum", "moisturizer", "sunscreen", "mask"]
 
@@ -81,38 +86,39 @@ async def get_or_generate_briefing(db: AsyncSession, persona_id: str) -> Briefin
     if now_kst < ready_at:
         return None
 
-    metric_result = await db.execute(
-        select(DailyMetric).where(
-            DailyMetric.persona_id == persona_id, DailyMetric.metric_date == today
-        )
-    )
-    metric = metric_result.scalar_one_or_none()
-
-    scan_result = await db.execute(
-        select(SkinScan)
-        .where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
-        .order_by(SkinScan.captured_at.desc())
-        .limit(1)
-    )
-    latest_scan = scan_result.scalar_one_or_none()
-
-    risk_level, factors = compute_risk(
-        sleep_hours=metric.sleep_hours if metric else None,
-        diet_flag=metric.diet_flag if metric else None,
-        latest_scores=latest_scan.scores if latest_scan else None,
-    )
+    context = await load_today_risk_context(db, persona_id, today, now_kst)
+    risk_level = context["risk_level"]
+    factors = context["factors"]
     routine, skip = await build_routine(db, persona_id, risk_level)
 
-    consents_result = await db.execute(select(Consent).where(Consent.persona_id == persona_id))
-    consent_map = {c.type: c.consented for c in consents_result.scalars()}
-
+    metric = context["metric"]
+    watch_used = bool(metric and (metric.sleep_hours is not None or metric.hrv_ms is not None))
     data_coverage = {
-        "weather": consent_map.get("weather_location", False),
-        "watch": consent_map.get("apple_health", False),
-        "skin_scan": latest_scan is not None,
+        "weather": context["weather"] is not None,
+        "watch": watch_used,
+        "skin_scan": context["latest_scan"] is not None,
         "my_shelf": bool(routine or skip),
-        "baseline_established": latest_scan is not None,
+        "baseline_established": context["baseline_established"],
     }
+
+    if not data_coverage["my_shelf"]:
+        shelf_notice = NO_COSMETICS_NOTICE
+    elif not routine:
+        shelf_notice = NO_FITTING_COSMETIC_NOTICE
+    else:
+        shelf_notice = None
+
+    summary = (
+        ", ".join(text for _, text in factors)
+        if factors
+        else "특별한 위험 요인이 관찰되지 않았어요."
+    )
+    if shelf_notice:
+        summary = f"{summary} {shelf_notice}"
+
+    limitation_notice = "의료적 진단이 아닌 생활·환경 데이터 기반 참고 안내입니다."
+    if not data_coverage["baseline_established"]:
+        limitation_notice += LIMITED_ACCURACY_NOTICE
 
     briefing = Briefing(
         persona_id=persona_id,
@@ -124,13 +130,13 @@ async def get_or_generate_briefing(db: AsyncSession, persona_id: str) -> Briefin
             if risk_level == "low"
             else "오늘은 피부 자극에 주의해 주세요."
         ),
-        summary=", ".join(factors) if factors else "특별한 위험 요인이 관찰되지 않았어요.",
-        contributing_factors=[{"type": "rule", "text": factor} for factor in factors],
+        summary=summary,
+        contributing_factors=[{"type": t, "text": text} for t, text in factors],
         routine=routine,
         skip=skip,
         common_knowledge=None,
         data_coverage=data_coverage,
-        limitation_notice="의료적 진단이 아닌 생활·환경 데이터 기반 참고 안내입니다.",
+        limitation_notice=limitation_notice,
         generated_at=now_kst,
         sent_at=now_kst,
     )

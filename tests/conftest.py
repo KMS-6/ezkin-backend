@@ -24,8 +24,10 @@ PARTNER_HEADERS = {"X-Partner-Key": "test-only-partner-key"}
 
 
 @pytest.fixture
-async def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncClient]:
-    """An AsyncClient wired to a fresh in-memory SQLite DB, seeded with one persona."""
+async def _session_factory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """A fresh in-memory SQLite DB, seeded with one persona. Shared by `client` and `db_session`."""
     monkeypatch.setattr(settings, "upload_dir", str(tmp_path / "uploads"))
     engine = create_async_engine(
         "sqlite+aiosqlite://",
@@ -46,8 +48,18 @@ async def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
         )
         await session.commit()
 
+    yield session_factory
+    await engine.dispose()
+
+
+@pytest.fixture
+async def client(
+    _session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncClient]:
+    """An AsyncClient wired to the shared test DB."""
+
     async def override_db() -> AsyncIterator[AsyncSession]:
-        async with session_factory() as session:
+        async with _session_factory() as session:
             yield session
 
     app.dependency_overrides[get_db] = override_db
@@ -57,7 +69,15 @@ async def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
             yield async_client
     finally:
         app.dependency_overrides.clear()
-        await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(
+    _session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
+    """A session on the same test DB as `client`, for seeding data with no API route."""
+    async with _session_factory() as session:
+        yield session
 
 
 @pytest.fixture

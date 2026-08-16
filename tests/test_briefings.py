@@ -1,11 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.metrics import DailyMetric
+from app.models.weather import WeatherSnapshot
 from app.modules.briefings import logic as briefings_logic
 from app.modules.briefings import router as briefings_router
+from tests.conftest import TEST_PERSONA_ID
 
 KST = ZoneInfo("Asia/Seoul")
 AFTER_READY_TIME = datetime(2026, 8, 16, 9, 0, tzinfo=KST)
@@ -78,3 +82,113 @@ async def test_notification_settings_upsert(
     )
     assert response.status_code == 200
     assert response.json()["morning_briefing_enabled"] is False
+
+
+async def test_briefing_reflects_consented_weather_in_factors_and_coverage(
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    consent = await client.put(
+        "/api/v1/consents/weather_location", headers=persona_headers, json={"consented": True}
+    )
+    assert consent.status_code == 200
+
+    db_session.add(
+        WeatherSnapshot(
+            persona_id=TEST_PERSONA_ID,
+            observed_at=AFTER_READY_TIME - timedelta(hours=1),
+            uv_index=9.0,
+            humidity_percent=20.0,
+            source="mock",
+        )
+    )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/briefings/today", headers=persona_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["risk_level"] == "moderate"
+    assert body["data_coverage"]["weather"] is True
+    assert body["data_coverage"]["watch"] is False
+    factor_types = {factor["type"] for factor in body["contributing_factors"]}
+    assert factor_types == {"weather"}
+
+
+async def test_briefing_data_coverage_false_without_any_consent(
+    client: AsyncClient, persona_headers: dict[str, str]
+) -> None:
+    response = await client.get("/api/v1/briefings/today", headers=persona_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data_coverage"]["weather"] is False
+    assert body["data_coverage"]["watch"] is False
+    assert body["data_coverage"]["baseline_established"] is False
+
+
+async def test_briefing_without_my_shelf_products_includes_registration_notice(
+    client: AsyncClient, persona_headers: dict[str, str]
+) -> None:
+    response = await client.get("/api/v1/briefings/today", headers=persona_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data_coverage"]["my_shelf"] is False
+    assert body["routine"] == []
+    assert "등록된 화장품이 없어" in body["summary"]
+
+
+async def test_briefing_hrv_baseline_established_adds_hrv_factor(
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    consent = await client.put(
+        "/api/v1/consents/apple_health", headers=persona_headers, json={"consented": True}
+    )
+    assert consent.status_code == 200
+
+    baseline_date = AFTER_READY_TIME.date()
+    for i in range(1, 15):
+        db_session.add(
+            DailyMetric(
+                persona_id=TEST_PERSONA_ID,
+                metric_date=baseline_date - timedelta(days=i),
+                hrv_ms=50.0,
+            )
+        )
+    db_session.add(DailyMetric(persona_id=TEST_PERSONA_ID, metric_date=baseline_date, hrv_ms=35.0))
+    await db_session.commit()
+
+    response = await client.get("/api/v1/briefings/today", headers=persona_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data_coverage"]["baseline_established"] is True
+    assert body["data_coverage"]["watch"] is True
+    factor_types = {factor["type"] for factor in body["contributing_factors"]}
+    assert "hrv" in factor_types
+    assert "정확도가 제한된 상태" not in body["limitation_notice"]
+
+
+async def test_briefing_hrv_baseline_not_established_notes_limited_accuracy(
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    consent = await client.put(
+        "/api/v1/consents/apple_health", headers=persona_headers, json={"consented": True}
+    )
+    assert consent.status_code == 200
+
+    # 14일 미만의 HRV 기록만 존재 — baseline 미형성.
+    baseline_date = AFTER_READY_TIME.date()
+    for i in range(1, 5):
+        db_session.add(
+            DailyMetric(
+                persona_id=TEST_PERSONA_ID,
+                metric_date=baseline_date - timedelta(days=i),
+                hrv_ms=50.0,
+            )
+        )
+    await db_session.commit()
+
+    response = await client.get("/api/v1/briefings/today", headers=persona_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data_coverage"]["baseline_established"] is False
+    factor_types = {factor["type"] for factor in body["contributing_factors"]}
+    assert "hrv" not in factor_types
+    assert "정확도가 제한된 상태" in body["limitation_notice"]

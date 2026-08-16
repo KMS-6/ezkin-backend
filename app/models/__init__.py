@@ -14,6 +14,7 @@ from app.models.shelf import Cosmetic
 from app.models.skin_scan import SkinScan
 from app.models.sos import SosMessage, SosSession
 from app.models.user import User
+from app.models.weather import WeatherSnapshot
 
 __all__ = [
     "Briefing",
@@ -39,4 +40,5 @@ __all__ = [
     "SosMessage",
     "SosSession",
     "User",
+    "WeatherSnapshot",
 ]

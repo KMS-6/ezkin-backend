@@ -4,21 +4,18 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.mock_persona import get_persona_id
 from app.db.session import get_db
 from app.models.generation import Generation
-from app.models.metrics import DailyMetric
 from app.models.report import Report
-from app.models.skin_scan import SkinScan
 from app.modules.risk.logic import (
     RISK_LEVELS,
     build_report_content,
-    compute_risk,
     count_observation_days,
+    load_today_risk_context,
 )
 from app.modules.risk.schemas import (
     EligibilityResponse,
@@ -39,34 +36,16 @@ ELIGIBILITY_WINDOW_DAYS = 14
 
 @router.get("/risk-assessments/today", response_model=RiskAssessmentOut)
 async def get_today_risk_assessment(db: DbSession, persona_id: PersonaId) -> RiskAssessmentOut:
-    today = datetime.now(KST).date()
+    now = datetime.now(KST)
+    today = now.date()
 
-    metric_result = await db.execute(
-        select(DailyMetric).where(
-            DailyMetric.persona_id == persona_id, DailyMetric.metric_date == today
-        )
-    )
-    metric = metric_result.scalar_one_or_none()
-
-    scan_result = await db.execute(
-        select(SkinScan)
-        .where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
-        .order_by(SkinScan.captured_at.desc())
-        .limit(1)
-    )
-    latest_scan = scan_result.scalar_one_or_none()
-
-    risk_level, factors = compute_risk(
-        sleep_hours=metric.sleep_hours if metric else None,
-        diet_flag=metric.diet_flag if metric else None,
-        latest_scores=latest_scan.scores if latest_scan else None,
-    )
+    context = await load_today_risk_context(db, persona_id, today, now)
 
     return RiskAssessmentOut(
         date=today,
-        risk_level=risk_level,
+        risk_level=context["risk_level"],
         risk_levels_enum=RISK_LEVELS,
-        contributing_factors=factors,
+        contributing_factors=[text for _, text in context["factors"]],
         limitation_notice="의료적 진단이 아닌 생활·환경 데이터 기반의 참고 위험도입니다.",
     )
 

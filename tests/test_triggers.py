@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
 
+from tests.conftest import PARTNER_HEADERS, TEST_PERSONA_ID
+
 KST = ZoneInfo("Asia/Seoul")
 
 QUESTIONNAIRE_ANSWERS = json.dumps(
@@ -216,6 +218,13 @@ async def test_sos_retinol_question_is_personalized_by_risk_and_my_shelf(
         json={"metric_date": today, "diet_flag": "spicy"},
     )
     assert metric_response.status_code == 200
+
+    health_data_response = await client.post(
+        "/api/v1/integrations/health-data",
+        headers={**PARTNER_HEADERS, "Idempotency-Key": "idem-sos-retinol-health"},
+        json={"user_token": TEST_PERSONA_ID, "metric_date": today, "sleep_hours": 4.5},
+    )
+    assert health_data_response.status_code == 200
 
     scan_response = await client.post(
         "/api/v1/skin-scans",

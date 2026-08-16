@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.metrics import DailyMetric
 from app.models.skin_scan import SkinScan
-from app.modules.risk.logic import compute_risk
+from app.modules.risk.logic import load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
 
 PATTERN_WINDOW_HOURS = 72
@@ -269,27 +269,9 @@ async def build_pattern_analysis(db: AsyncSession, scan: SkinScan) -> dict:
 
 
 async def _load_today_risk(db: AsyncSession, persona_id: str) -> tuple[str, list[str]]:
-    today = datetime.now(KST).date()
-    metric_result = await db.execute(
-        select(DailyMetric).where(
-            DailyMetric.persona_id == persona_id, DailyMetric.metric_date == today
-        )
-    )
-    metric = metric_result.scalar_one_or_none()
-
-    scan_result = await db.execute(
-        select(SkinScan)
-        .where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
-        .order_by(SkinScan.captured_at.desc())
-        .limit(1)
-    )
-    latest_scan = scan_result.scalar_one_or_none()
-
-    return compute_risk(
-        sleep_hours=metric.sleep_hours if metric else None,
-        diet_flag=metric.diet_flag if metric else None,
-        latest_scores=latest_scan.scores if latest_scan else None,
-    )
+    now = datetime.now(KST)
+    context = await load_today_risk_context(db, persona_id, now.date(), now)
+    return context["risk_level"], [text for _, text in context["factors"]]
 
 
 async def _load_owned_cosmetics(db: AsyncSession, persona_id: str) -> list[PersonaCosmetic]:
