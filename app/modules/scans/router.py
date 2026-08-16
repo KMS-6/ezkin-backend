@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persona import get_persona_id
@@ -43,7 +43,7 @@ async def submit_scan(
 
     return SkinScanAccepted(
         scan_id=scan.id,
-        status="processing",
+        status=scan.status,
         capture_method=payload.capture_method,
         status_url=f"/api/v1/skin-scans/{scan.id}",
     )
@@ -68,7 +68,7 @@ async def get_scan(
 async def list_scans(
     db: DbSession,
     persona_id: PersonaId,
-    limit: int = 20,
+    limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = None,
 ) -> SkinScanListResponse:
     items, next_cursor = await service.list_scans(db, persona_id, limit=limit, cursor=cursor)

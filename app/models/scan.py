@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, String
+from sqlalchemy import JSON, Boolean, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -6,6 +6,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class SkinScan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "skin_scans"
+    __table_args__ = (UniqueConstraint("persona_id", "idempotency_key"),)
 
     persona_id: Mapped[str] = mapped_column(String(60), index=True)
     capture_method: Mapped[str] = mapped_column(String(20))  # "camera" | "questionnaire"

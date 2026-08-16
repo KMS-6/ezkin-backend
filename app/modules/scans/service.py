@@ -3,6 +3,7 @@ import hashlib
 from uuid import UUID
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.scan import SkinScan
@@ -83,9 +84,24 @@ async def create_scan(
         )
 
     db.add(scan)
-    await db.commit()
-    await db.refresh(scan)
-    return scan, True
+    try:
+        await db.commit()
+        await db.refresh(scan)
+        return scan, True
+    except IntegrityError as exc:
+        await db.rollback()
+        existing = await db.execute(
+            select(SkinScan).where(
+                SkinScan.persona_id == persona_id,
+                SkinScan.idempotency_key == idempotency_key,
+            )
+        )
+        existing_scan = existing.scalar_one_or_none()
+        if existing_scan is not None:
+            if existing_scan.idempotency_payload_hash != payload_hash:
+                raise ValueError("idempotency_conflict") from exc
+            return existing_scan, False
+        raise
 
 
 async def get_scan(
@@ -126,9 +142,19 @@ async def list_scans(
     query = select(SkinScan).where(SkinScan.persona_id == persona_id)
 
     if cursor is not None:
+        cursor_id: UUID | None = None
         try:
             cursor_id = _decode_cursor(cursor)
-            cursor_scan_result = await db.execute(select(SkinScan).where(SkinScan.id == cursor_id))
+        except ValueError:
+            cursor_id = None
+
+        if cursor_id is not None:
+            cursor_scan_result = await db.execute(
+                select(SkinScan).where(
+                    SkinScan.id == cursor_id,
+                    SkinScan.persona_id == persona_id,
+                )
+            )
             cursor_scan = cursor_scan_result.scalar_one_or_none()
             if cursor_scan is not None:
                 # cursor_scan의 created_at보다 이전 OR (같은 시간이면 id 문자열이 더 작은 것)
@@ -141,8 +167,6 @@ async def list_scans(
                         (SkinScan.created_at == cursor_created_at) & (SkinScan.id < cursor_id_val),
                     )
                 )
-        except (ValueError, Exception):
-            pass  # 잘못된 커서는 무시하고 처음부터
 
     query = query.order_by(SkinScan.created_at.desc(), SkinScan.id.desc()).limit(limit + 1)
     result = await db.execute(query)

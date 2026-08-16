@@ -65,3 +65,24 @@ async def test_skin_scan_questionnaire(db_session: AsyncSession) -> None:
     assert scan.lower_accuracy is True
     assert scan.scores["redness"] == 0.3
     assert scan.questionnaire_answers["redness"] == "mild"
+
+
+async def test_skin_scan_unique_constraint(db_session: AsyncSession) -> None:
+    from sqlalchemy.exc import IntegrityError
+
+    scan1 = SkinScan(
+        persona_id="persona_uq",
+        capture_method="camera",
+        idempotency_key="key-same",
+    )
+    db_session.add(scan1)
+    await db_session.commit()
+
+    scan2 = SkinScan(
+        persona_id="persona_uq",
+        capture_method="camera",
+        idempotency_key="key-same",
+    )
+    db_session.add(scan2)
+    with pytest.raises(IntegrityError):
+        await db_session.commit()

@@ -90,3 +90,31 @@ async def test_list_scans_pagination(db: AsyncSession) -> None:
     items2, next_cursor2 = await list_scans(db, "persona_c1_minjun", limit=3, cursor=next_cursor)
     assert len(items2) == 2
     assert next_cursor2 is None
+
+
+async def test_create_scan_integrity_error_recovery(db: AsyncSession) -> None:
+    # 최초 생성
+    payload = SkinScanCreate(capture_method=CaptureMethod.CAMERA, image_key="uploads/race.jpg")
+    scan1, is_new1 = await create_scan(db, "persona_race", payload, "key-race")
+    assert is_new1 is True
+
+    # commit 시점에 IntegrityError가 발생하도록 mock
+    from unittest.mock import patch
+
+    from sqlalchemy.exc import IntegrityError
+
+    with patch.object(db, "commit", side_effect=IntegrityError("duplicate", None, None)):
+        scan2, is_new2 = await create_scan(db, "persona_race", payload, "key-race")
+        assert is_new2 is False
+        assert scan2.id == scan1.id
+
+
+async def test_list_scans_invalid_cursor_ignored(db: AsyncSession) -> None:
+    for i in range(2):
+        payload = SkinScanCreate(capture_method=CaptureMethod.CAMERA, image_key=f"uploads/{i}.jpg")
+        await create_scan(db, "persona_invalid_cursor", payload, f"key-inv-{i}")
+
+    items, _ = await list_scans(
+        db, "persona_invalid_cursor", limit=10, cursor="invalid-not-base64?!"
+    )
+    assert len(items) == 2

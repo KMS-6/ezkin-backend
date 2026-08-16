@@ -34,6 +34,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_skin_scans")),
+        sa.UniqueConstraint("persona_id", "idempotency_key", name=op.f("uq_skin_scans_persona_id")),
     )
     op.create_index(op.f("ix_skin_scans_idempotency_key"), "skin_scans", ["idempotency_key"])
     op.create_index(op.f("ix_skin_scans_persona_id"), "skin_scans", ["persona_id"])
