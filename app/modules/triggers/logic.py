@@ -10,6 +10,7 @@ from app.models.metrics import DailyMetric
 from app.models.skin_scan import SkinScan
 from app.modules.risk.logic import load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
+from app.modules.triggers.nlu import INGREDIENT_ALIASES, parse_message
 
 PATTERN_WINDOW_HOURS = 72
 IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal", "alcohol"}
@@ -54,9 +55,9 @@ TOPICAL_VERBS = ("발라", "바르", "도포")
 # (CHAT-SAFE-004). "약" 단독은 오탐 가능성이 있어 중단·용량 관련 동사와 결합될 때만 판정한다.
 MEDICATION_ACTION_STEMS = ("끊", "중단", "용량")
 
-# 관리자 승인 synonym을 대체하는 MVP용 최소 별칭 사전(7.3절).
-RETINOL_ALIASES = ("레티놀", "레티노이드", "retinol")
-VITAMIN_C_ALIASES = ("비타민c", "비타민 c", "아스코르빈산", "vitamin c")
+# 성분 별칭은 app.modules.triggers.nlu.INGREDIENT_ALIASES로 일원화했다(7.3절). 진정·보습
+# 대체품 탐색용 별칭만 여기 남긴다 — 사용자가 메시지에서 언급하는 개체가 아니라 My Shelf
+# 제품의 속성이라 파서의 관심사가 아니다.
 SOOTHING_ALIASES = ("판테놀", "병풀", "센텔라", "세라마이드", "알로에", "히알루론")
 
 # 8.2절 초기 기준: >=0.80 즉시 채택, 0.60~0.79는 1·2위 차이가 충분할 때만 채택, 미만이면
@@ -343,13 +344,15 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
         }
 
     owned = await _load_owned_cosmetics(db, persona_id)
-    mentions_retinol = _mentions_any(message, RETINOL_ALIASES)
-    mentions_vitamin_c = _mentions_any(message, VITAMIN_C_ALIASES)
+    parsed = parse_message(message)
+    mentioned_ingredients = parsed.entities["ingredient_names"]
+    mentions_retinol = "retinol" in mentioned_ingredients
+    mentions_vitamin_c = "vitamin_c" in mentioned_ingredients
 
     # 9절 규칙 예시: 레티놀+비타민C 조합은 승인된 상호작용 규칙(avoid_same_routine)만 사용한다.
     if mentions_retinol and mentions_vitamin_c:
-        retinol_product = _owns_ingredient(owned, RETINOL_ALIASES)
-        vitamin_c_product = _owns_ingredient(owned, VITAMIN_C_ALIASES)
+        retinol_product = _owns_ingredient(owned, INGREDIENT_ALIASES["retinol"])
+        vitamin_c_product = _owns_ingredient(owned, INGREDIENT_ALIASES["vitamin_c"])
         if retinol_product and vitamin_c_product:
             reply = (
                 f"{_product_label(retinol_product)}와(과) {_product_label(vitamin_c_product)}는 "
@@ -376,7 +379,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
 
     # 9절 규칙 예시: 레티놀 보유 + 고위험이면 오늘 사용을 생략하고 진정/보습 대체 제품을 찾는다.
     if mentions_retinol:
-        retinol_product = _owns_ingredient(owned, RETINOL_ALIASES)
+        retinol_product = _owns_ingredient(owned, INGREDIENT_ALIASES["retinol"])
         if retinol_product is None:
             return _answer(
                 "등록된 화장품에서 레티놀 제품을 확인하지 못했어요. My Shelf에 제품을 등록하면 "
