@@ -17,7 +17,7 @@ def chunk_text(text: str) -> list[str]:
     for para in paragraphs:
         if not buffer:
             buffer = para
-        elif len(buffer) + len(para) + 2 < TARGET_MIN:
+        elif len(buffer) < TARGET_MIN:
             buffer = buffer + "\n\n" + para
         else:
             merged.append(buffer)

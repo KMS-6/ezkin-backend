@@ -1,4 +1,5 @@
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -33,8 +34,8 @@ class KnowledgeDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class KnowledgeChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "knowledge_chunks"
 
-    document_id: Mapped[str] = mapped_column(
-        ForeignKey("knowledge_documents.id"), nullable=False, index=True
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), nullable=False, index=True
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)

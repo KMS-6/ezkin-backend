@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # ── 문서 등록 ──────────────────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ class IndexResponse(BaseModel):
 
 class KnowledgeSearchRequest(BaseModel):
     keywords: list[str]
-    limit: int = 5
+    limit: int = Field(default=5, ge=1, le=20)
 
 
 class KnowledgeChunkResult(BaseModel):

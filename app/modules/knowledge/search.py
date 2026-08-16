@@ -5,7 +5,7 @@ approved 상태 청크만 대상으로, is_active=True인 인덱스의 claim_id�
 SQLite에서는 like를 사용하고 PostgreSQL에서는 ilike를 사용한다.
 """
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument, KnowledgeIndex
@@ -46,11 +46,13 @@ async def keyword_search(
     if not allowed_doc_ids:
         return []
 
-    # approved 청크 중 허용 문서에 속하는 것
+    # approved 청크 중 허용 문서에 속하고 키워드를 포함하는 것 (DB 1차 필터링)
+    keyword_filters = [KnowledgeChunk.content.ilike(f"%{kw}%") for kw in keywords]
     chunk_result = await db.execute(
         select(KnowledgeChunk).where(
             KnowledgeChunk.status == "approved",
             KnowledgeChunk.document_id.in_(allowed_doc_ids),
+            or_(*keyword_filters),
         )
     )
     candidates = chunk_result.scalars().all()

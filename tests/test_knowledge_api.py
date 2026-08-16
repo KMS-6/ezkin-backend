@@ -241,3 +241,20 @@ async def test_internal_search_no_match_returns_empty(client) -> None:
     )
     assert search_resp.status_code == 200
     assert search_resp.json()["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_internal_search_invalid_limit_returns_422(client) -> None:
+    # limit < 1
+    resp_low = await client.post(
+        "/internal/knowledge/search",
+        json={"keywords": ["보습"], "limit": 0},
+    )
+    assert resp_low.status_code == 422
+
+    # limit > 20
+    resp_high = await client.post(
+        "/internal/knowledge/search",
+        json={"keywords": ["보습"], "limit": 21},
+    )
+    assert resp_high.status_code == 422

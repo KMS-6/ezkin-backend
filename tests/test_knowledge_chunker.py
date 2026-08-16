@@ -53,3 +53,30 @@ def test_chunk_sizes_within_range() -> None:
     assert len(result) > 1
     for chunk in result[:-1]:
         assert len(chunk) <= TARGET_MAX
+
+
+def test_three_paragraphs_merge_boundary() -> None:
+    """TARGET_MIN(300) 미만 버퍼는 다음 문단과 병합되고, 300자 이상이 되면 새 청크로 분리된다."""
+    # para1(150자) + para2(160자) = 312자 (>= 300자) -> 1번 청크로 병합
+    # para3(200자)는 새 청크로 분리
+    para1 = "A" * 150
+    para2 = "B" * 160
+    para3 = "C" * 200
+    text = f"{para1}\n\n{para2}\n\n{para3}"
+
+    result = chunk_text(text)
+    assert len(result) == 2
+    assert result[0] == f"{para1}\n\n{para2}"
+    assert result[1] == para3
+
+
+def test_four_short_paragraphs_merge_until_min() -> None:
+    """여러 개의 짧은 문단들이 TARGET_MIN 도달할 때까지 연속 병합된다."""
+    # 80자 4개: 80 -> 162 -> 244 -> 326 (모두 합쳐져 단일 청크)
+    paras = [f"문단{i} " + "글" * 74 for i in range(4)]
+    text = "\n\n".join(paras)
+
+    result = chunk_text(text)
+    assert len(result) == 1
+    for p in paras:
+        assert p in result[0]
