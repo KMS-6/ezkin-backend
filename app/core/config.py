@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=list)
     auth_secret: SecretStr
     access_token_ttl_seconds: int = Field(default=86400, gt=0)
+    admin_api_key: SecretStr
+    partner_api_key: SecretStr
+    upload_dir: str = "./storage/uploads"
+    max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    idempotency_ttl_hours: int = Field(default=24, gt=0)
 
     @field_validator("database_url")
     @classmethod

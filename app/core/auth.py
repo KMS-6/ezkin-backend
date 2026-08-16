@@ -19,7 +19,13 @@ def _encode(value: bytes) -> str:
 
 
 def _decode(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    if _encode(decoded) != value:
+        # base64's trailing padding bits are ignored by the decoder, so a tampered
+        # string can decode to the same bytes as a valid one unless we require the
+        # canonical re-encoding to round-trip exactly.
+        raise ValueError("non-canonical base64 encoding")
+    return decoded
 
 
 def create_access_token(user_id: UUID, issued_at: int | None = None) -> str:
