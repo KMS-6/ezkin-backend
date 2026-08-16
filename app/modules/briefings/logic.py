@@ -23,11 +23,33 @@ LIMITED_ACCURACY_NOTICE = " HRV 데이터가 충분히 쌓이지 않아 정확�
 BRIEFING_READY_TIME = time(6, 30)
 PRODUCT_TYPE_ORDER = ["cleanser", "toner", "serum", "moisturizer", "sunscreen", "mask"]
 
+# 8.1절 예시의 note 문구를 기준으로 한 제품타입별 사용법 안내. 고위험일에는 조금 더
+# 신경써서 바르라는 조언으로 갈라지되, 횟수·강도를 정밀하게 단정하지 않는 일반적인 사용
+# 팁 수준으로 제한한다(효능·성분을 확정하지 않는다는 13.4절 원칙과 동일한 정신).
+ROUTINE_NOTES: dict[str, dict[bool, str | None]] = {
+    "cleanser": {True: "미온수로 자극 없이 부드럽게 세안해 주세요.", False: None},
+    "toner": {True: "자극을 줄이도록 겹겹이 얇게 발라 주세요.", False: "얇게 사용해 주세요."},
+    "serum": {True: "소량만 사용해 주세요.", False: None},
+    "moisturizer": {
+        True: "수분 손실을 막기 위해 평소보다 두껍게 발라 주세요.",
+        False: "보습을 마무리해 주세요.",
+    },
+    "sunscreen": {True: None, False: None},
+    "mask": {True: "자극 가능성이 있어 짧게 사용해 주세요.", False: None},
+}
+
 
 def _product_type_rank(product_type: str | None) -> int:
     if product_type in PRODUCT_TYPE_ORDER:
         return PRODUCT_TYPE_ORDER.index(product_type)
     return len(PRODUCT_TYPE_ORDER)
+
+
+def _routine_note(product_type: str | None, high_risk_day: bool) -> str | None:
+    templates = ROUTINE_NOTES.get(product_type or "")
+    if templates is None:
+        return None
+    return templates[high_risk_day]
 
 
 async def build_routine(
@@ -63,7 +85,7 @@ async def build_routine(
                 "action": "use",
                 "cosmetic_id": str(cosmetic.id),
                 "name": name,
-                "note": None,
+                "note": _routine_note(cosmetic.product_type, high_risk_day),
             }
         )
         order += 1

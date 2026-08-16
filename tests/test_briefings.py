@@ -9,7 +9,7 @@ from app.models.metrics import DailyMetric
 from app.models.weather import WeatherSnapshot
 from app.modules.briefings import logic as briefings_logic
 from app.modules.briefings import router as briefings_router
-from tests.conftest import TEST_PERSONA_ID
+from tests.conftest import ADMIN_HEADERS, PARTNER_HEADERS, TEST_PERSONA_ID
 
 KST = ZoneInfo("Asia/Seoul")
 AFTER_READY_TIME = datetime(2026, 8, 16, 9, 0, tzinfo=KST)
@@ -43,6 +43,7 @@ async def test_briefing_generates_and_is_cached(
     assert body["risk_level"] == "low"
     assert body["common_knowledge"] is None
     assert len(body["routine"]) == 1
+    assert body["routine"][0]["note"] == "보습을 마무리해 주세요."
 
     second = await client.get("/api/v1/briefings/today", headers=persona_headers)
     # SQLite round-trips DateTime(timezone=True) without an offset suffix, so compare the
@@ -192,3 +193,131 @@ async def test_briefing_hrv_baseline_not_established_notes_limited_accuracy(
     factor_types = {factor["type"] for factor in body["contributing_factors"]}
     assert "hrv" not in factor_types
     assert "정확도가 제한된 상태" in body["limitation_notice"]
+
+
+async def test_briefing_night_snack_poor_sleep_and_dry_weather_scenario(
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    """ "야식 + 부족한 수면 + 건조한 날씨 → very_high, 비타민C 생략, 진정 토너/수분 크림 사용"
+    시나리오. 수면·HRV는 Galaxy Watch를 흉내 낸 health-data 웹훅으로, 날씨는 WeatherSnapshot
+    시드로, 식습관은 실제 daily-metrics API로 넣어 엔드투엔드로 검증한다.
+    """
+    today = AFTER_READY_TIME.date().isoformat()
+
+    weather_consent = await client.put(
+        "/api/v1/consents/weather_location", headers=persona_headers, json={"consented": True}
+    )
+    assert weather_consent.status_code == 200
+    health_consent = await client.put(
+        "/api/v1/consents/apple_health", headers=persona_headers, json={"consented": True}
+    )
+    assert health_consent.status_code == 200
+
+    # 건조한 날씨(습도 20%) — 관측 시각은 브리핑 생성 시점(AFTER_READY_TIME) 6시간 이내.
+    db_session.add(
+        WeatherSnapshot(
+            persona_id=TEST_PERSONA_ID,
+            observed_at=AFTER_READY_TIME - timedelta(hours=1),
+            humidity_percent=20.0,
+            source="mock",
+        )
+    )
+    # HRV baseline(14일 평균 50ms) 형성 — 오늘 값은 웹훅으로 넣는다.
+    for i in range(1, 15):
+        db_session.add(
+            DailyMetric(
+                persona_id=TEST_PERSONA_ID,
+                metric_date=AFTER_READY_TIME.date() - timedelta(days=i),
+                hrv_ms=50.0,
+            )
+        )
+    await db_session.commit()
+
+    # Galaxy Watch → Health Connect → 앱이 오늘자 수면·HRV를 보냈다고 가정(웹훅 payload).
+    health_data = await client.post(
+        "/api/v1/integrations/health-data",
+        headers={**PARTNER_HEADERS, "Idempotency-Key": "idem-briefing-scenario-health"},
+        json={
+            "user_token": TEST_PERSONA_ID,
+            "metric_date": today,
+            "sleep_hours": 4.5,
+            "hrv_ms": 35.0,
+        },
+    )
+    assert health_data.status_code == 200
+
+    # 야식 기록(수동 입력).
+    diet = await client.post(
+        "/api/v1/daily-metrics/manual",
+        headers=persona_headers,
+        json={"metric_date": today, "diet_flag": "late_night_meal"},
+    )
+    assert diet.status_code == 200
+
+    # My Shelf: 비타민C 앰플(주의 성분) + 진정 토너 + 수분 크림.
+    ingredient = await client.post(
+        "/api/v1/admin/ingredients",
+        headers=ADMIN_HEADERS,
+        json={"name": "비타민C", "risk_level": "caution", "target_concern": "고위험일 자극"},
+    )
+    assert ingredient.status_code == 201
+    await client.post(
+        "/api/v1/cosmetics",
+        headers=persona_headers,
+        data={
+            "brand": "AAC",
+            "product_name": "비타민C 앰플",
+            "product_type": "serum",
+            "ingredients_raw": '["비타민C"]',
+        },
+    )
+    await client.post(
+        "/api/v1/cosmetics",
+        headers=persona_headers,
+        data={
+            "brand": "AAC",
+            "product_name": "진정 토너",
+            "product_type": "toner",
+            "ingredients_raw": '["판테놀"]',
+        },
+    )
+    await client.post(
+        "/api/v1/cosmetics",
+        headers=persona_headers,
+        data={
+            "brand": "AAC",
+            "product_name": "수분 크림",
+            "product_type": "moisturizer",
+            "ingredients_raw": '["세라마이드"]',
+        },
+    )
+
+    response = await client.get("/api/v1/briefings/today", headers=persona_headers)
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["risk_level"] == "very_high"
+
+    factor_types = {factor["type"] for factor in body["contributing_factors"]}
+    assert factor_types == {"sleep", "hrv", "diet", "weather"}
+
+    routine_names = [step["name"] for step in body["routine"]]
+    assert routine_names == ["AAC 진정 토너", "AAC 수분 크림"]
+    # very_high(고위험일)이므로 토너·크림 모두 강화된 사용법 안내를 받는다.
+    routine_notes = [step["note"] for step in body["routine"]]
+    assert routine_notes == [
+        "자극을 줄이도록 겹겹이 얇게 발라 주세요.",
+        "수분 손실을 막기 위해 평소보다 두껍게 발라 주세요.",
+    ]
+
+    skip_names = [item["name"] for item in body["skip"]]
+    assert skip_names == ["AAC 비타민C 앰플"]
+
+    assert body["data_coverage"] == {
+        "weather": True,
+        "watch": True,
+        "skin_scan": False,
+        "my_shelf": True,
+        "baseline_established": True,
+    }
+    assert "정확도가 제한된 상태" not in body["limitation_notice"]
