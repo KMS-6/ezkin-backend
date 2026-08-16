@@ -17,20 +17,6 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.8.13"
-          enable-cache: true
-      - run: uv sync --frozen
-      - run: uv run ruff format --check .
-      - run: uv run ruff check .
-      - run: uv run pytest
-
-  postgres-migration:
-    name: PostgreSQL migration
-    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:17-alpine
@@ -46,7 +32,6 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      AAC_ENVIRONMENT: production
       AAC_DATABASE_URL: postgresql+asyncpg://ezkin:ci-only-password@localhost:5432/ezkin_test
       AAC_AUTH_SECRET: ci-only-auth-secret
     steps:
@@ -56,8 +41,11 @@ jobs:
           version: "0.8.13"
           enable-cache: true
       - run: uv sync --frozen
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
       - run: uv run alembic upgrade head
       - run: uv run alembic current --check-heads
+      - run: uv run pytest
 
   deployment-config:
     name: Deployment config

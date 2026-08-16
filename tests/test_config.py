@@ -22,7 +22,8 @@ def test_cors_origins_accepts_deployed_frontend() -> None:
     assert Settings(cors_origins=[origin]).cors_origins == [origin]
 
 
-def test_production_requires_explicit_database_url() -> None:
+def test_production_requires_explicit_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AAC_DATABASE_URL", raising=False)
     with pytest.raises(ValidationError, match="AAC_DATABASE_URL"):
         Settings(environment="production")
 
@@ -51,5 +52,9 @@ def test_postgres_engine_uses_connection_pool_health_checks() -> None:
     }
 
 
-def test_sqlite_engine_does_not_receive_postgres_pool_options() -> None:
+def test_sqlite_engine_does_not_receive_postgres_pool_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AAC_DATABASE_URL", raising=False)
+    monkeypatch.delenv("AAC_ENVIRONMENT", raising=False)
     assert database_engine_options(Settings()) == {"echo": False}
