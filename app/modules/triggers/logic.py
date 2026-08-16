@@ -2,15 +2,17 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.metrics import DailyMetric
 from app.models.skin_scan import SkinScan
 from app.models.sos import SosMessage
 from app.modules.risk.logic import load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
+from app.modules.triggers.llm_escalation import escalate_parse
 from app.modules.triggers.nlu import BODY_AREA_ALIASES, INGREDIENT_ALIASES, parse_message
 
 PATTERN_WINDOW_HOURS = 72
@@ -230,6 +232,7 @@ def _answer(
     used_contexts: list[str],
     intent: str,
     parse_confidence: float,
+    llm_escalated: bool,
     decision: dict | None = None,
 ) -> dict:
     return {
@@ -243,6 +246,7 @@ def _answer(
         "expert_referral_suggested": False,
         "intent": intent,
         "parse_confidence": parse_confidence,
+        "llm_escalated": llm_escalated,
     }
 
 
@@ -345,11 +349,30 @@ async def _load_owned_cosmetics(db: AsyncSession, persona_id: str) -> list[Perso
     return list(result.scalars())
 
 
+async def _escalations_today(db: AsyncSession, persona_id: str) -> int:
+    """비용 방어: 페르소나당 하루 LLM escalation 호출 횟수를 센다(KST 기준 자정
+    경계). settings.chat_llm_daily_cap_per_persona를 넘기면 더 escalate하지 않는다
+    — 애매한 메시지가 몰려도 호출이 무한정 늘어나지 않게 막는다.
+    """
+    today_start_kst = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await db.execute(
+        select(func.count())
+        .select_from(SosMessage)
+        .where(
+            SosMessage.persona_id == persona_id,
+            SosMessage.llm_escalated.is_(True),
+            SosMessage.created_at >= today_start_kst,
+        )
+    )
+    return result.scalar_one()
+
+
 async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> dict:
     """Rule-based SOS 챗봇 응답 — 기능명세서_chatbot.md 9·13절, API명세서.md 15.2절 확정 응답.
 
-    LLM은 호출하지 않는다(10절 LLM 사용 최소화 정책). 파싱은 키워드·별칭 사전, 답변은
-    서버 템플릿 치환만으로 조립한다.
+    답변은 서버 템플릿 치환만으로 조립하며 LLM을 쓰지 않는다(10절 LLM 사용 최소화
+    정책). 파싱만 예외적으로 parse_confidence가 낮을 때 저비용 LLM으로 보정한다
+    (10.2절 4단계, escalate_parse) — 그 외에는 키워드·별칭 사전 기반 규칙만 쓴다.
     """
     # 14절: 위험 키워드는 FAQ 검색보다 먼저 검사한다. 자해 표현은 일반 고위험보다 더
     # 우선해 스킨케어 안내를 전혀 섞지 않는다.
@@ -366,6 +389,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "expert_referral_suggested": True,
             "intent": "high_risk_symptom",
             "parse_confidence": 1.0,
+            "llm_escalated": False,
         }
 
     if is_urgent(message):
@@ -380,6 +404,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "expert_referral_suggested": True,
             "intent": "high_risk_symptom",
             "parse_confidence": 1.0,
+            "llm_escalated": False,
         }
 
     if is_supplement_question(message):
@@ -395,6 +420,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "expert_referral_suggested": False,
             "intent": "out_of_scope",
             "parse_confidence": 1.0,
+            "llm_escalated": False,
         }
 
     if is_medication_question(message):
@@ -410,10 +436,21 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "expert_referral_suggested": True,
             "intent": "out_of_scope",
             "parse_confidence": 1.0,
+            "llm_escalated": False,
         }
 
     owned = await _load_owned_cosmetics(db, persona_id)
     parsed = parse_message(message)
+    # 10.2절 4단계: parse_confidence가 낮을 때만 저비용 LLM으로 보정한다. 키 미설정·
+    # 호출 실패·일일 상한 초과 시 규칙 기반 결과를 그대로 쓴다.
+    llm_escalated = False
+    if parsed.parse_confidence < FAQ_LOW_CONFIDENCE:
+        cap = settings.chat_llm_daily_cap_per_persona
+        if cap > 0 and await _escalations_today(db, persona_id) < cap:
+            escalated = await escalate_parse(message)
+            if escalated is not None:
+                parsed = escalated
+                llm_escalated = True
     mentioned_ingredients = parsed.entities["ingredient_names"]
 
     # 9절 규칙 예시 + 11.5절 INGREDIENT_INTERACTIONS: 2개 이상 성분이 언급되면 승인된
@@ -449,6 +486,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
                 decision={"rule_id": interaction["rule_id"], "code": "AVOID_SAME_ROUTINE"},
                 intent=parsed.intent,
                 parse_confidence=parsed.parse_confidence,
+                llm_escalated=llm_escalated,
             )
         return _answer(
             "언급하신 성분 조합은 검증된 상호작용 규칙이 없어 사용 가능 여부를 단정하기 "
@@ -460,6 +498,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             used_contexts=[],
             intent=parsed.intent,
             parse_confidence=parsed.parse_confidence,
+            llm_escalated=llm_escalated,
         )
 
     # 9절 규칙 예시: 레티놀 보유 + 고위험이면 오늘 사용을 생략하고 진정/보습 대체 제품을 찾는다.
@@ -476,6 +515,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
                 used_contexts=["owned_products"],
                 intent=parsed.intent,
                 parse_confidence=parsed.parse_confidence,
+                llm_escalated=llm_escalated,
             )
 
         risk_level, factors = await _load_today_risk(db, persona_id)
@@ -509,6 +549,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
                 decision={"rule_id": "rule_retinol_high_risk", "code": "SKIP_PRODUCT"},
                 intent=parsed.intent,
                 parse_confidence=parsed.parse_confidence,
+                llm_escalated=llm_escalated,
             )
 
         return _answer(
@@ -522,6 +563,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             decision={"rule_id": "rule_retinol_normal_risk", "code": "USE_PRODUCT"},
             intent=parsed.intent,
             parse_confidence=parsed.parse_confidence,
+            llm_escalated=llm_escalated,
         )
 
     # 2절 원칙: 새 제품 구매를 우선 권하지 않고 보유 화장품을 먼저 활용한다.
@@ -551,6 +593,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             decision=decision,
             intent=parsed.intent,
             parse_confidence=parsed.parse_confidence,
+            llm_escalated=llm_escalated,
         )
 
     if parsed.intent == "sunscreen":
@@ -575,6 +618,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             used_contexts=used_contexts,
             intent=parsed.intent,
             parse_confidence=parsed.parse_confidence,
+            llm_escalated=llm_escalated,
         )
 
     if parsed.intent == "skin_trouble":
@@ -613,6 +657,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             used_contexts=used_contexts,
             intent=parsed.intent,
             parse_confidence=parsed.parse_confidence,
+            llm_escalated=llm_escalated,
         )
 
     resolved = resolve_faq(message, parsed.intent)
@@ -635,6 +680,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             used_contexts=used_contexts,
             intent=parsed.intent,
             parse_confidence=parsed.parse_confidence,
+            llm_escalated=llm_escalated,
         )
 
     # 8.2절: 1·2위 후보가 근소해 모호하면 두 후보를 놓고 선택형 재질문을 한다(CB-04).
@@ -652,6 +698,7 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             "expert_referral_suggested": False,
             "intent": parsed.intent,
             "parse_confidence": parsed.parse_confidence,
+            "llm_escalated": llm_escalated,
         }
 
     # 8.2절: 일치도 기준 미달이면 임의로 답변하지 않고 재질문한다(CB-03, CB-04).
@@ -666,13 +713,16 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
         "expert_referral_suggested": False,
         "intent": parsed.intent,
         "parse_confidence": parsed.parse_confidence,
+        "llm_escalated": llm_escalated,
     }
 
 
 async def compute_chat_metrics(db: AsyncSession, persona_id: str | None = None) -> dict:
-    """18.3절 운영 지표의 최소 버전. LLM 호출 경로가 아직 없어 rule_only_rate는 항상
-    1.0이다 — 지금 의미 있는 신호는 `low_confidence_rate`로, 나중에 LLM escalation을
-    연동했을 때 실제로 escalate됐을 메시지 비율의 근사치다.
+    """18.3절 운영 지표. `rule_only_rate`는 실제로 LLM escalation을 거치지 않은 메시지의
+    비율이다(escalate_parse가 성공적으로 결과를 대체한 메시지만 llm_escalated=True로
+    저장된다). `low_confidence_rate`는 최종 저장된 parse_confidence 기준이라 escalation이
+    성공한 메시지는 보정값(0.75)으로 집계된다 — 즉 "여전히 낮은 신뢰도로 남은" 메시지
+    비율이지, "escalate 됐어야 할" 메시지 비율이 아니다.
     """
     stmt = select(SosMessage)
     if persona_id is not None:
@@ -691,12 +741,13 @@ async def compute_chat_metrics(db: AsyncSession, persona_id: str | None = None) 
         }
 
     fallback_count = sum(1 for m in messages if m.reply_type == "clarification")
+    escalated_count = sum(1 for m in messages if m.llm_escalated)
     confidences = [m.parse_confidence for m in messages if m.parse_confidence is not None]
     low_confidence_count = sum(1 for c in confidences if c < FAQ_LOW_CONFIDENCE)
 
     return {
         "total_messages": total,
-        "rule_only_rate": 1.0,
+        "rule_only_rate": round(1 - (escalated_count / total), 2),
         "fallback_rate": round(fallback_count / total, 2),
         "avg_parse_confidence": (
             round(sum(confidences) / len(confidences), 2) if confidences else None

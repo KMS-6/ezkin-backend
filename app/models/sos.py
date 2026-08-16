@@ -34,3 +34,8 @@ class SosMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # 관측(rule-only 처리율 등, 18.3절)에만 사용한다.
     intent: Mapped[str | None] = mapped_column(String(30))
     parse_confidence: Mapped[float | None] = mapped_column(Float)
+    # 10.2절 4단계: 이 메시지의 파싱이 실제로 LLM escalation을 거쳤는지(성공 여부).
+    # rule_only_rate(18.3절)를 정확히 계산하려면 confidence 값만으로는 판단할 수
+    # 없다 — escalation이 성공하면 parse_confidence가 보정값(0.75)으로 덮어써지기
+    # 때문이다.
+    llm_escalated: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -1,9 +1,10 @@
 """SOS 챗봇 자연어 파서 — 기능명세서_chatbot.md 7절 intent·entity 구조화.
 
-10.2절 1~3단계(정규화 사전·정규식 slot filling → parse_confidence 계산)까지만 다룬다.
-4단계(parse_confidence < 0.60일 때 저비용 LLM으로 보정)는 아직 연동돼 있지 않다 —
-지금은 낮은 신뢰도를 결정적 fallback(재질문)으로 안전하게 처리한다(17절 가용성 원칙:
-LLM 장애·부재에도 대부분의 메시지는 정상 응답이 가능해야 한다).
+10.2절 1~3단계(정규화 사전·정규식 slot filling → parse_confidence 계산)만 다룬다.
+4단계(parse_confidence < 0.60일 때 저비용 LLM으로 보정)는 app.modules.triggers.
+llm_escalation.escalate_parse가 build_chat_reply에서 이 결과에 이어 호출한다 — LLM
+키가 없거나 호출이 실패하면 여기서 계산한 규칙 기반 결과를 그대로 쓴다(17절 가용성
+원칙: LLM 장애·부재에도 대부분의 메시지는 정상 응답이 가능해야 한다).
 
 FAQ 매칭(resolve_faq)은 이 파서와 별개의 자체 점수 체계를 그대로 유지한다 — 여기서 계산한
 parse_confidence는 FAQ 채택 여부를 아직 좌우하지 않는다(8.2절의 "intent로 FAQ 후보를

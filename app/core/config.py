@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     upload_dir: str = "./storage/uploads"
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     idempotency_ttl_hours: int = Field(default=24, gt=0)
+    # 챗봇 10.2/10.5절: parse_confidence < 0.60일 때만 쓰는 저비용 LLM escalation.
+    # 키가 없으면 기능이 조용히 꺼지고 규칙 기반 결과로만 동작한다(17절 가용성 원칙).
+    anthropic_api_key: SecretStr | None = None
+    chat_llm_model: str = "claude-haiku-4-5"
+    # 페르소나당 하루 escalation 호출 상한 — 애매한 메시지가 몰려도 비용이 무한정
+    # 늘어나지 않게 막는 안전장치. 초과하면 escalation 없이 규칙 기반 결과로 폴백한다.
+    chat_llm_daily_cap_per_persona: int = Field(default=20, ge=0)
 
     @field_validator("database_url")
     @classmethod

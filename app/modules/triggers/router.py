@@ -76,6 +76,7 @@ async def send_sos_message(
         expert_referral_suggested=result["expert_referral_suggested"],
         intent=result["intent"],
         parse_confidence=result["parse_confidence"],
+        llm_escalated=result["llm_escalated"],
     )
     db.add(message)
     await db.flush()
