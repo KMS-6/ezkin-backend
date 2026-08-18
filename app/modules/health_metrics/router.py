@@ -101,13 +101,13 @@ async def upsert_daily_metric(
     if metric is None:
         metric = DailyMetric(persona_id=persona_id, metric_date=payload.metric_date)
         db.add(metric)
-    metric.hydration_level = payload.hydration_level
+    metric.water_intake_level = payload.water_intake_level
     metric.diet_flag = payload.diet_flag
     await db.commit()
     await db.refresh(metric)
     return DailyMetricOut(
         metric_date=metric.metric_date,
-        hydration_level=metric.hydration_level,
+        water_intake_level=metric.water_intake_level,
         diet_flag=metric.diet_flag,
         updated_at=metric.updated_at,
     )

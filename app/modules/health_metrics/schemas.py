@@ -4,17 +4,16 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 
-class HydrationLevel(StrEnum):
-    LOW = "low"
-    NORMAL = "normal"
-    HIGH = "high"
+class WaterIntakeLevel(StrEnum):
+    UNDER_3_GLASSES = "under_3_glasses"
+    THREE_TO_FIVE_GLASSES = "three_to_five_glasses"
+    OVER_5_GLASSES = "over_5_glasses"
 
 
 class DietFlag(StrEnum):
     NORMAL = "normal"
     SPICY = "spicy"
     LATE_NIGHT_MEAL = "late_night_meal"
-    ALCOHOL = "alcohol"
 
 
 class HealthDataIn(BaseModel):
@@ -31,12 +30,12 @@ class HealthDataReceived(BaseModel):
 
 class DailyMetricIn(BaseModel):
     metric_date: date
-    hydration_level: HydrationLevel | None = None
+    water_intake_level: WaterIntakeLevel
     diet_flag: DietFlag | None = None
 
 
 class DailyMetricOut(BaseModel):
     metric_date: date
-    hydration_level: str | None
+    water_intake_level: str | None
     diet_flag: str | None
     updated_at: datetime | None

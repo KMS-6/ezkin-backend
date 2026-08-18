@@ -14,7 +14,7 @@ class DailyMetric(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("personas.id", ondelete="CASCADE"), index=True
     )
     metric_date: Mapped[date] = mapped_column(Date)
-    hydration_level: Mapped[str | None] = mapped_column(String(20))
+    water_intake_level: Mapped[str | None] = mapped_column(String(20))
     diet_flag: Mapped[str | None] = mapped_column(String(30))
     sleep_hours: Mapped[float | None] = mapped_column(Float)
     hrv_ms: Mapped[float | None] = mapped_column(Float)
