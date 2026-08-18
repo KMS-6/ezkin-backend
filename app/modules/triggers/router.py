@@ -36,7 +36,7 @@ async def get_pattern_analysis(
     if scan.status != "completed":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="insufficient_data_history: 완료된 스캔에서만 패턴 분석을 제공합니다.",
+            detail="scan_not_completed: 완료된 스캔에서만 패턴 분석을 제공합니다.",
         )
     content = await build_pattern_analysis(db, scan)
     return PatternAnalysisOut(scan_id=str(scan.id), **content)
