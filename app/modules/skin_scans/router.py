@@ -31,6 +31,7 @@ from app.modules.skin_scans.schemas import (
     SkinScanFailure,
     SkinScanListItem,
     SkinScanListResponse,
+    SkinScanModel,
     SkinScanResult,
 )
 
@@ -41,6 +42,10 @@ PersonaId = Annotated[str, Depends(get_persona_id)]
 REQUIRED_QUESTIONS = {"redness", "tightness", "oiliness"}
 ALLOWED_QUESTIONS = REQUIRED_QUESTIONS | {"new_lesions"}
 SEVERITY_VALUES = {"none", "mild", "moderate", "severe"}
+
+# delta_vs_baseline은 최근 유효 스캔 중앙값과의 차이. 기준선이 부족하면 null을 반환한다.
+BASELINE_WINDOW = 10
+BASELINE_MIN_SCANS = 3
 
 
 def _validation_error(message: str) -> HTTPException:
@@ -77,6 +82,40 @@ async def _latest_completed_scan(db: AsyncSession, persona_id: str) -> SkinScan 
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def _recent_completed_scores(
+    db: AsyncSession, persona_id: str, limit: int = BASELINE_WINDOW
+) -> list[dict[str, float]]:
+    result = await db.execute(
+        select(SkinScan)
+        .where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
+        .order_by(SkinScan.captured_at.desc())
+        .limit(limit)
+    )
+    return [scan.scores for scan in result.scalars() if scan.scores]
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _compute_delta_vs_baseline(
+    scores: dict[str, float], history: list[dict[str, float]]
+) -> dict[str, float] | None:
+    if len(history) < BASELINE_MIN_SCANS:
+        return None
+    deltas: dict[str, float] = {}
+    for metric, value in scores.items():
+        metric_values = [entry[metric] for entry in history if metric in entry]
+        if len(metric_values) < BASELINE_MIN_SCANS:
+            continue
+        deltas[metric] = round(value - _median(metric_values), 2)
+    return deltas or None
 
 
 # 202 Accepted + status="processing"은 비동기 API 스펙 규격을 충족하기 위한 것으로, 실제로는
@@ -153,6 +192,7 @@ async def create_skin_scan(
         assert parsed_answers is not None
         scores = score_questionnaire(parsed_answers)
         previous = await _latest_completed_scan(db, persona_id)
+        baseline_history = await _recent_completed_scores(db, persona_id)
         scan.scores = scores
         scan.confidence = dict.fromkeys(scores, 0.5)
         scan.delta_vs_previous = (
@@ -163,6 +203,7 @@ async def create_skin_scan(
             if previous and previous.scores
             else None
         )
+        scan.delta_vs_baseline = _compute_delta_vs_baseline(scores, baseline_history)
         scan.lower_accuracy = True
         scan.status = "completed"
         scan.limitation_notice = (
@@ -213,9 +254,18 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         capture_method=scan.capture_method,
         created_at=scan.created_at,
         lower_accuracy=scan.lower_accuracy,
+        schema_version="skin_observation.v1" if scan.status == "completed" else None,
         scores=scan.scores,
+        confidence=scan.confidence,
+        delta_vs_baseline=scan.delta_vs_baseline,
         delta_vs_previous=scan.delta_vs_previous,
+        model=(
+            SkinScanModel(provider="TBD", name="TBD", version="TBD")
+            if scan.status == "completed"
+            else None
+        ),
         limitation_notice=scan.limitation_notice,
+        retry_after_seconds=3 if scan.status == "processing" else None,
         failure=(
             SkinScanFailure(
                 code=scan.failure_code,

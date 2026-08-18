@@ -16,15 +16,26 @@ class SkinScanFailure(BaseModel):
     retryable: bool
 
 
+class SkinScanModel(BaseModel):
+    provider: str
+    name: str
+    version: str
+
+
 class SkinScanResult(BaseModel):
     scan_id: str
     status: str
     capture_method: str
     created_at: datetime
     lower_accuracy: bool
+    schema_version: str | None = None
     scores: dict[str, float] | None = None
+    confidence: dict[str, float] | None = None
+    delta_vs_baseline: dict[str, float] | None = None
     delta_vs_previous: dict[str, float] | None = None
+    model: SkinScanModel | None = None
     limitation_notice: str | None = None
+    retry_after_seconds: int | None = None
     failure: SkinScanFailure | None = None
 
 
