@@ -10,3 +10,5 @@ class Persona(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String(30), primary_key=True)
     label: Mapped[str] = mapped_column(String(100))
     summary_traits: Mapped[dict] = mapped_column(JSON)
+    # "no_watch" | "has_watch" — spec Mock Persona 데이터 생성 규칙
+    watch_status: Mapped[str] = mapped_column(String(20), server_default="no_watch")

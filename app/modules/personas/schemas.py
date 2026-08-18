@@ -19,4 +19,5 @@ class PersonaListResponse(BaseModel):
 
 
 class PersonaDetailResponse(PersonaSummary):
+    watch_status: str
     features: list[FeatureAvailability]

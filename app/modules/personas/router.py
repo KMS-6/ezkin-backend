@@ -40,5 +40,6 @@ async def get_persona_detail(persona_id: str, db: DbSession) -> PersonaDetailRes
         id=persona.id,
         label=persona.label,
         summary_traits=persona.summary_traits,
+        watch_status=persona.watch_status,
         features=features,
     )

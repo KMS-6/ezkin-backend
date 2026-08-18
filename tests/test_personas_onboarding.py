@@ -20,8 +20,18 @@ async def test_list_and_get_persona(client: AsyncClient) -> None:
 
     detail_response = await client.get("/api/v1/personas/persona_001")
     assert detail_response.status_code == 200
-    features = {f["feature"] for f in detail_response.json()["features"]}
-    assert features == {"risk_assessment_health", "risk_assessment_weather", "pattern_analysis"}
+    body = detail_response.json()
+    features = {f["feature"] for f in body["features"]}
+    assert features == {
+        "watch_data",
+        "risk_assessment_health",
+        "risk_assessment_weather",
+        "pattern_analysis",
+    }
+    # persona_001은 워치 없음 → watch_status = no_watch, watch_data 제한
+    assert body["watch_status"] == "no_watch"
+    watch_feature = next(f for f in body["features"] if f["feature"] == "watch_data")
+    assert watch_feature["status"] == "limited"
 
     missing_response = await client.get("/api/v1/personas/persona_999")
     assert missing_response.status_code == 404
