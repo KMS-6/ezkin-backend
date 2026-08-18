@@ -1,3 +1,4 @@
+from app.models.audit_log import AuditLog
 from app.models.briefing import Briefing, NotificationSettings
 from app.models.care import CareContext, CareRoutine, RoutineStep
 from app.models.cosmetic_catalog import Ingredient, PersonaCosmetic
@@ -17,6 +18,7 @@ from app.models.user import User
 from app.models.weather import WeatherSnapshot
 
 __all__ = [
+    "AuditLog",
     "Briefing",
     "CareContext",
     "CareRoutine",

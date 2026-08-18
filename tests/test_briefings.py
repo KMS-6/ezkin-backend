@@ -261,7 +261,7 @@ async def test_briefing_night_snack_poor_sleep_and_dry_weather_scenario(
     # My Shelf: 비타민C 앰플(주의 성분) + 진정 토너 + 수분 크림.
     ingredient = await client.post(
         "/api/v1/admin/ingredients",
-        headers=ADMIN_HEADERS,
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-briefing-ingredient"},
         json={"name": "비타민C", "risk_level": "caution", "target_concern": "고위험일 자극"},
     )
     assert ingredient.status_code == 201

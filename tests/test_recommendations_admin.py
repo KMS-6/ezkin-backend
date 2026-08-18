@@ -1,5 +1,8 @@
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditLog
 from tests.conftest import ADMIN_HEADERS
 
 
@@ -11,12 +14,21 @@ async def test_admin_product_crud_requires_admin_key(client: AsyncClient) -> Non
     assert response.status_code == 403
 
 
+async def test_admin_product_create_requires_idempotency_key(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/admin/products",
+        headers=ADMIN_HEADERS,
+        json={"name": "약산성 클렌저", "brand": "AAC", "external_url": "https://example.com/p"},
+    )
+    assert response.status_code == 422
+
+
 async def test_recommendations_match_onboarding_concern(
-    client: AsyncClient, persona_headers: dict[str, str]
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
 ) -> None:
     create = await client.post(
         "/api/v1/admin/products",
-        headers=ADMIN_HEADERS,
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-product-1"},
         json={
             "name": "고보습 크림",
             "brand": "AAC",
@@ -25,10 +37,11 @@ async def test_recommendations_match_onboarding_concern(
         },
     )
     assert create.status_code == 201
+    product_id = create.json()["product_id"]
 
     duplicate = await client.post(
         "/api/v1/admin/products",
-        headers=ADMIN_HEADERS,
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-product-2"},
         json={
             "name": "고보습 크림",
             "brand": "AAC",
@@ -36,6 +49,14 @@ async def test_recommendations_match_onboarding_concern(
         },
     )
     assert duplicate.status_code == 409
+
+    logs = (await db_session.execute(select(AuditLog))).scalars().all()
+    assert {log.action for log in logs} == {"admin.products.create"}
+    success_logs = [log for log in logs if log.result == "success"]
+    conflict_logs = [log for log in logs if log.result == "conflict"]
+    assert len(success_logs) == 1
+    assert success_logs[0].resource_id == product_id
+    assert len(conflict_logs) == 1
 
     await client.post(
         "/api/v1/onboarding/profile",
@@ -53,10 +74,47 @@ async def test_recommendations_match_onboarding_concern(
     assert len(list_products.json()["items"]) == 1
 
 
+async def test_knowledge_document_create_requires_idempotency_key(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/admin/knowledge/documents",
+        headers=ADMIN_HEADERS,
+        json={
+            "source_url": "https://example.com/study",
+            "title": "수면과 피부 장벽",
+            "collected_at": "2026-08-01T00:00:00Z",
+        },
+    )
+    assert response.status_code == 422
+
+
+async def test_knowledge_document_create_writes_audit_log(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    create = await client.post(
+        "/api/v1/admin/knowledge/documents",
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-doc-audit"},
+        json={
+            "source_url": "https://example.com/study",
+            "title": "수면과 피부 장벽",
+            "collected_at": "2026-08-01T00:00:00Z",
+        },
+    )
+    assert create.status_code == 201
+    document_id = create.json()["id"]
+
+    logs = (await db_session.execute(select(AuditLog))).scalars().all()
+    assert len(logs) == 1
+    assert logs[0].actor == "admin"
+    assert logs[0].action == "admin.knowledge.documents.create"
+    assert logs[0].resource_type == "knowledge_document"
+    assert logs[0].resource_id == document_id
+    assert logs[0].result == "success"
+
+
 async def test_knowledge_document_approve_and_index_lifecycle(client: AsyncClient) -> None:
     create = await client.post(
         "/api/v1/admin/knowledge/documents",
-        headers=ADMIN_HEADERS,
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-doc-1"},
         json={
             "source_url": "https://example.com/study",
             "title": "수면과 피부 장벽",
@@ -69,7 +127,7 @@ async def test_knowledge_document_approve_and_index_lifecycle(client: AsyncClien
 
     approve = await client.post(
         f"/api/v1/admin/knowledge/documents/{document_id}/approve",
-        headers=ADMIN_HEADERS,
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-doc-approve-1"},
         json={
             "claim_id": "claim_sleep_barrier_001",
             "claim_version": 1,
@@ -87,13 +145,16 @@ async def test_knowledge_document_approve_and_index_lifecycle(client: AsyncClien
     assert approve.json()["review_status"] == "approved"
 
     create_index = await client.post(
-        "/api/v1/admin/knowledge/indexes", headers=ADMIN_HEADERS, json={"version": "v1"}
+        "/api/v1/admin/knowledge/indexes",
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-index-1"},
+        json={"version": "v1"},
     )
     assert create_index.status_code == 201
     assert create_index.json()["claim_ids"] == ["claim_sleep_barrier_001"]
 
     activate = await client.post(
-        "/api/v1/admin/knowledge/indexes/v1/activate", headers=ADMIN_HEADERS
+        "/api/v1/admin/knowledge/indexes/v1/activate",
+        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-index-activate-1"},
     )
     assert activate.status_code == 200
     assert activate.json()["is_active"] is True
