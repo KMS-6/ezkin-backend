@@ -215,7 +215,11 @@ async def test_sos_retinol_question_is_personalized_by_risk_and_my_shelf(
     metric_response = await client.post(
         "/api/v1/daily-metrics/manual",
         headers=persona_headers,
-        json={"metric_date": today, "diet_flag": "spicy"},
+        json={
+            "metric_date": today,
+            "water_intake_level": "under_3_glasses",
+            "diet_flag": "spicy",
+        },
     )
     assert metric_response.status_code == 200
 

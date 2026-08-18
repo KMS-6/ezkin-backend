@@ -250,7 +250,11 @@ async def test_briefing_night_snack_poor_sleep_and_dry_weather_scenario(
     diet = await client.post(
         "/api/v1/daily-metrics/manual",
         headers=persona_headers,
-        json={"metric_date": today, "diet_flag": "late_night_meal"},
+        json={
+            "metric_date": today,
+            "water_intake_level": "under_3_glasses",
+            "diet_flag": "late_night_meal",
+        },
     )
     assert diet.status_code == 200
 
