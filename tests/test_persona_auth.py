@@ -1,53 +1,48 @@
-import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from typing import Annotated
 
-from app.db.base import Base
-from app.db.session import get_db
-from app.main import app
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
 
+from app.core.persona import get_persona_id
 
-@pytest.fixture()
-async def db_session():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as s:
-        yield s
-    await engine.dispose()
+_app = FastAPI()
 
 
-@pytest.fixture()
-async def client(db_session: AsyncSession):
-    async def override():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-        yield c
-    app.dependency_overrides.clear()
+@_app.get("/protected")
+def protected(persona_id: Annotated[str, Depends(get_persona_id)]) -> dict[str, str]:
+    return {"persona_id": persona_id}
 
 
-async def test_missing_header_returns_400(client):
-    response = await client.get("/api/v1/analysis/eligibility")
+client = TestClient(_app)
+
+
+def test_valid_persona_passes() -> None:
+    response = client.get("/protected", headers={"X-Mock-Persona-Id": "persona_a1_seoyeon"})
+    assert response.status_code == 200
+    assert response.json() == {"persona_id": "persona_a1_seoyeon"}
+
+
+def test_all_allowed_personas_pass() -> None:
+    allowed = [
+        "persona_a1_seoyeon",
+        "persona_a2_haneul",
+        "persona_b1_eunji",
+        "persona_b2_doyoon",
+        "persona_c1_minjun",
+        "persona_c2_haeun",
+    ]
+    for persona_id in allowed:
+        response = client.get("/protected", headers={"X-Mock-Persona-Id": persona_id})
+        assert response.status_code == 200, f"{persona_id} should be allowed"
+
+
+def test_missing_header_returns_400() -> None:
+    response = client.get("/protected")
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "mock_persona_required"
 
 
-async def test_invalid_persona_returns_400(client):
-    response = await client.get(
-        "/api/v1/analysis/eligibility",
-        headers={"X-Mock-Persona-Id": "invalid_persona"},
-    )
+def test_invalid_persona_returns_400() -> None:
+    response = client.get("/protected", headers={"X-Mock-Persona-Id": "unknown_persona"})
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "mock_persona_required"
-
-
-async def test_valid_persona_passes(client):
-    response = await client.get(
-        "/api/v1/analysis/eligibility",
-        headers={"X-Mock-Persona-Id": "persona_a1_seoyeon"},
-    )
-    # 인증은 통과해야 함 (400이 아닌 다른 응답)
-    assert response.status_code != 400
