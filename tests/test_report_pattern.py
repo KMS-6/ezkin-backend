@@ -35,6 +35,7 @@ async def _add_scan(
         persona_id=persona_id,
         capture_method="camera",
         status=status,
+        captured_at=created_at,
         created_at=created_at,
         scores=scores,
     )

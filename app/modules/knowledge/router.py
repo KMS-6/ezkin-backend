@@ -1,263 +1,209 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select, update
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.admin_auth import require_admin
-from app.core.audit_log import write_audit_log
-from app.core.idempotency import check_idempotency, store_idempotency
+from app.core.admin_auth import get_admin
 from app.db.session import get_db
-from app.models.knowledge import KnowledgeDocument, KnowledgeIndex
+from app.models.knowledge import KnowledgeChunk, KnowledgeDocument, KnowledgeIndex
+from app.modules.knowledge.chunker import chunk_text
 from app.modules.knowledge.schemas import (
-    ClaimApproveIn,
-    KnowledgeDocumentCreateIn,
-    KnowledgeDocumentOut,
-    KnowledgeIndexCreateIn,
-    KnowledgeIndexOut,
+    DocumentApproveRequest,
+    DocumentApproveResponse,
+    DocumentCreateRequest,
+    DocumentResponse,
+    IndexCreateRequest,
+    IndexResponse,
 )
 
-router = APIRouter(
-    prefix="/admin/knowledge", tags=["admin-knowledge"], dependencies=[Depends(require_admin)]
-)
+router = APIRouter(prefix="/admin/knowledge", tags=["admin-knowledge"])
+
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+AdminDep = Annotated[None, Depends(get_admin)]
 
 
-def _to_document_out(document: KnowledgeDocument) -> KnowledgeDocumentOut:
-    return KnowledgeDocumentOut(
-        id=str(document.id),
-        source_url=document.source_url,
-        title=document.title,
-        collected_at=document.collected_at,
-        license=document.license,
-        review_status=document.review_status,
-        claim_id=document.claim_id,
-        claim_version=document.claim_version,
-        topic=document.topic,
-        population=document.population,
-        evidence_level=document.evidence_level,
-        allowed_features=document.allowed_features,
-        required_user_facts=document.required_user_facts,
-        next_review_at=document.next_review_at,
-    )
-
-
-@router.post("/documents", response_model=KnowledgeDocumentOut, status_code=status.HTTP_201_CREATED)
+@router.post("/documents", status_code=status.HTTP_201_CREATED, response_model=DocumentResponse)
 async def create_document(
-    payload: KnowledgeDocumentCreateIn,
+    body: DocumentCreateRequest,
     db: DbSession,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> KnowledgeDocumentOut:
-    idempotency_payload = payload.model_dump(mode="json")
-    cached = await check_idempotency(
-        db,
-        scope="admin:knowledge:documents:create",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
+    _: AdminDep,
+) -> DocumentResponse:
+    doc = KnowledgeDocument(
+        source_url=body.source_url,
+        title=body.title,
+        collected_at=body.collected_at,
+        license=body.license,
+        source_type_note=body.source_type_note,
+        review_status="draft",
     )
-    if cached is not None:
-        return KnowledgeDocumentOut(**cached)
-
-    document = KnowledgeDocument(**payload.model_dump(), review_status="draft")
-    db.add(document)
+    db.add(doc)
     await db.flush()
 
-    await write_audit_log(
-        db,
-        actor="admin",
-        action="admin.knowledge.documents.create",
-        resource_type="knowledge_document",
-        resource_id=str(document.id),
-        result="success",
-    )
-
-    response = _to_document_out(document)
-    cached = await store_idempotency(
-        db,
-        scope="admin:knowledge:documents:create",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
-        response_status=status.HTTP_201_CREATED,
-        response_body=response.model_dump(mode="json"),
-    )
-    if cached is not None:
-        return KnowledgeDocumentOut(**cached)
-
+    chunks = chunk_text(body.raw_text)
+    for idx, content in enumerate(chunks):
+        db.add(
+            KnowledgeChunk(
+                document_id=doc.id,
+                chunk_index=idx,
+                content=content,
+                status="draft",
+            )
+        )
     await db.commit()
-    return response
+    await db.refresh(doc)
+
+    return DocumentResponse(
+        id=doc.id,
+        source_url=doc.source_url,
+        title=doc.title,
+        collected_at=doc.collected_at,
+        review_status=doc.review_status,
+        chunk_count=len(chunks),
+        created_at=doc.created_at,
+    )
 
 
-@router.post("/documents/{document_id}/approve", response_model=KnowledgeDocumentOut)
+@router.get("/documents/{doc_id}", response_model=DocumentResponse)
+async def get_document(
+    doc_id: UUID,
+    db: DbSession,
+    _: AdminDep,
+) -> DocumentResponse:
+    result = await db.execute(select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found"})
+
+    chunk_result = await db.execute(
+        select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc_id)
+    )
+    chunk_count = len(chunk_result.scalars().all())
+
+    return DocumentResponse(
+        id=doc.id,
+        source_url=doc.source_url,
+        title=doc.title,
+        collected_at=doc.collected_at,
+        review_status=doc.review_status,
+        chunk_count=chunk_count,
+        created_at=doc.created_at,
+    )
+
+
+@router.post("/documents/{doc_id}/approve", response_model=DocumentApproveResponse)
 async def approve_document(
-    document_id: UUID,
-    payload: ClaimApproveIn,
+    doc_id: UUID,
+    body: DocumentApproveRequest,
     db: DbSession,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> KnowledgeDocumentOut:
-    idempotency_payload = payload.model_dump(mode="json")
-    idempotency_payload["document_id"] = str(document_id)
-    cached = await check_idempotency(
-        db,
-        scope="admin:knowledge:documents:approve",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
-    )
-    if cached is not None:
-        return KnowledgeDocumentOut(**cached)
+    _: AdminDep,
+) -> DocumentApproveResponse:
+    result = await db.execute(select(KnowledgeDocument).where(KnowledgeDocument.id == doc_id))
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found"})
 
-    document = await db.get(KnowledgeDocument, document_id)
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="문서를 찾을 수 없습니다."
-        )
-    for field, value in payload.model_dump().items():
-        setattr(document, field, value)
-    document.review_status = "approved"
-    await db.flush()
+    doc.review_status = "approved"
+    doc.claim_id = body.claim_id
+    doc.claim_version = body.claim_version
+    doc.topic = body.topic
+    doc.population = body.population
+    doc.evidence_level = body.evidence_level
+    doc.allowed_features = body.allowed_features
+    doc.required_user_facts = body.required_user_facts
+    doc.allowed_expressions = body.allowed_expressions
+    doc.forbidden_expressions = body.forbidden_expressions
+    doc.next_review_at = body.next_review_at
 
-    await write_audit_log(
-        db,
-        actor="admin",
-        action="admin.knowledge.documents.approve",
-        resource_type="knowledge_document",
-        resource_id=str(document.id),
-        result="success",
+    # 청크도 approved로
+    chunk_result = await db.execute(
+        select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc_id)
     )
-
-    response = _to_document_out(document)
-    cached = await store_idempotency(
-        db,
-        scope="admin:knowledge:documents:approve",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
-        response_status=status.HTTP_200_OK,
-        response_body=response.model_dump(mode="json"),
-    )
-    if cached is not None:
-        return KnowledgeDocumentOut(**cached)
+    for chunk in chunk_result.scalars().all():
+        chunk.status = "approved"
 
     await db.commit()
-    return response
+    await db.refresh(doc)
+
+    return DocumentApproveResponse(
+        id=doc.id,
+        review_status=doc.review_status,
+        claim_id=doc.claim_id,
+        claim_version=doc.claim_version,
+    )
 
 
-@router.get("/documents/{document_id}", response_model=KnowledgeDocumentOut)
-async def get_document(document_id: UUID, db: DbSession) -> KnowledgeDocumentOut:
-    document = await db.get(KnowledgeDocument, document_id)
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="문서를 찾을 수 없습니다."
-        )
-    return _to_document_out(document)
-
-
-@router.post("/indexes", response_model=KnowledgeIndexOut, status_code=status.HTTP_201_CREATED)
+@router.post("/indexes", status_code=status.HTTP_201_CREATED, response_model=IndexResponse)
 async def create_index(
-    payload: KnowledgeIndexCreateIn,
+    body: IndexCreateRequest,
     db: DbSession,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> KnowledgeIndexOut:
-    idempotency_payload = payload.model_dump(mode="json")
-    cached = await check_idempotency(
-        db,
-        scope="admin:knowledge:indexes:create",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
+    _: AdminDep,
+) -> IndexResponse:
+    # claim_ids에 해당하는 approved 청크 수 계산
+    doc_result = await db.execute(
+        select(KnowledgeDocument.id).where(
+            KnowledgeDocument.review_status == "approved",
+            KnowledgeDocument.claim_id.in_(body.claim_ids),
+        )
     )
-    if cached is not None:
-        return KnowledgeIndexOut(**cached)
+    doc_ids = [row[0] for row in doc_result.all()]
 
-    result = await db.execute(
-        select(KnowledgeDocument).where(KnowledgeDocument.review_status == "approved")
+    chunk_result = await db.execute(
+        select(KnowledgeChunk).where(
+            KnowledgeChunk.status == "approved",
+            KnowledgeChunk.document_id.in_(doc_ids),
+        )
     )
-    claim_ids = sorted({doc.claim_id for doc in result.scalars() if doc.claim_id})
-    index = KnowledgeIndex(version=payload.version, claim_ids=claim_ids, is_active=False)
-    db.add(index)
-    await db.flush()
+    chunks = chunk_result.scalars().all()
 
-    await write_audit_log(
-        db,
-        actor="admin",
-        action="admin.knowledge.indexes.create",
-        resource_type="knowledge_index",
-        resource_id=str(index.id),
-        result="success",
+    idx = KnowledgeIndex(
+        version=body.version,
+        is_active=False,
+        claim_ids=body.claim_ids,
+        chunk_count=len(chunks),
     )
-
-    response = KnowledgeIndexOut(
-        version=index.version, claim_ids=index.claim_ids, is_active=index.is_active
-    )
-    cached = await store_idempotency(
-        db,
-        scope="admin:knowledge:indexes:create",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
-        response_status=status.HTTP_201_CREATED,
-        response_body=response.model_dump(mode="json"),
-    )
-    if cached is not None:
-        return KnowledgeIndexOut(**cached)
-
+    db.add(idx)
     await db.commit()
-    return response
+    await db.refresh(idx)
+
+    return IndexResponse(
+        id=idx.id,
+        version=idx.version,
+        is_active=idx.is_active,
+        claim_ids=idx.claim_ids,
+        chunk_count=idx.chunk_count,
+        created_at=idx.created_at,
+    )
 
 
-@router.post("/indexes/{version}/activate", response_model=KnowledgeIndexOut)
+@router.post("/indexes/{version}/activate", response_model=IndexResponse)
 async def activate_index(
     version: str,
     db: DbSession,
-    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
-) -> KnowledgeIndexOut:
-    idempotency_payload = {"version": version}
-    cached = await check_idempotency(
-        db,
-        scope="admin:knowledge:indexes:activate",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
-    )
-    if cached is not None:
-        return KnowledgeIndexOut(**cached)
-
+    _: AdminDep,
+) -> IndexResponse:
     result = await db.execute(select(KnowledgeIndex).where(KnowledgeIndex.version == version))
-    index = result.scalar_one_or_none()
-    if index is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="인덱스를 찾을 수 없습니다."
-        )
-    await db.execute(update(KnowledgeIndex).values(is_active=False))
-    index.is_active = True
-    await db.flush()
+    idx = result.scalar_one_or_none()
+    if idx is None:
+        raise HTTPException(status_code=404, detail={"code": "not_found"})
 
-    await write_audit_log(
-        db,
-        actor="admin",
-        action="admin.knowledge.indexes.activate",
-        resource_type="knowledge_index",
-        resource_id=str(index.id),
-        result="success",
+    # 기존 활성 인덱스 비활성화
+    all_result = await db.execute(
+        select(KnowledgeIndex).where(KnowledgeIndex.is_active == True)  # noqa: E712
     )
+    for active_idx in all_result.scalars().all():
+        active_idx.is_active = False
 
-    response = KnowledgeIndexOut(
-        version=index.version, claim_ids=index.claim_ids, is_active=index.is_active
-    )
-    cached = await store_idempotency(
-        db,
-        scope="admin:knowledge:indexes:activate",
-        subject="admin",
-        key=idempotency_key,
-        payload=idempotency_payload,
-        response_status=status.HTTP_200_OK,
-        response_body=response.model_dump(mode="json"),
-    )
-    if cached is not None:
-        return KnowledgeIndexOut(**cached)
-
+    idx.is_active = True
     await db.commit()
-    return response
+    await db.refresh(idx)
+
+    return IndexResponse(
+        id=idx.id,
+        version=idx.version,
+        is_active=idx.is_active,
+        claim_ids=idx.claim_ids,
+        chunk_count=idx.chunk_count,
+        created_at=idx.created_at,
+    )

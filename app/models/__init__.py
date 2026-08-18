@@ -5,7 +5,7 @@ from app.models.cosmetic_catalog import Ingredient, PersonaCosmetic
 from app.models.feedback import GenerationFeedback
 from app.models.generation import Generation
 from app.models.idempotency import IdempotencyRecord
-from app.models.knowledge import KnowledgeDocument, KnowledgeIndex
+from app.models.knowledge import KnowledgeChunk, KnowledgeDocument, KnowledgeIndex
 from app.models.metrics import DailyMetric
 from app.models.onboarding import Consent, OnboardingProfile
 from app.models.persona import Persona
@@ -29,6 +29,7 @@ __all__ = [
     "GenerationFeedback",
     "IdempotencyRecord",
     "Ingredient",
+    "KnowledgeChunk",
     "KnowledgeDocument",
     "KnowledgeIndex",
     "NotificationSettings",

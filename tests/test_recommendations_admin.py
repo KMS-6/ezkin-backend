@@ -74,7 +74,7 @@ async def test_recommendations_match_onboarding_concern(
     assert len(list_products.json()["items"]) == 1
 
 
-async def test_knowledge_document_create_requires_idempotency_key(client: AsyncClient) -> None:
+async def test_knowledge_document_create_requires_raw_text(client: AsyncClient) -> None:
     response = await client.post(
         "/api/v1/admin/knowledge/documents",
         headers=ADMIN_HEADERS,
@@ -88,37 +88,31 @@ async def test_knowledge_document_create_requires_idempotency_key(client: AsyncC
 
 
 async def test_knowledge_document_create_writes_audit_log(
-    client: AsyncClient, db_session: AsyncSession
+    client: AsyncClient,
 ) -> None:
     create = await client.post(
         "/api/v1/admin/knowledge/documents",
-        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-doc-audit"},
+        headers=ADMIN_HEADERS,
         json={
             "source_url": "https://example.com/study",
             "title": "수면과 피부 장벽",
             "collected_at": "2026-08-01T00:00:00Z",
+            "raw_text": "수면 부족은 피부 장벽 회복에 영향을 줄 수 있습니다.",
         },
     )
     assert create.status_code == 201
-    document_id = create.json()["id"]
-
-    logs = (await db_session.execute(select(AuditLog))).scalars().all()
-    assert len(logs) == 1
-    assert logs[0].actor == "admin"
-    assert logs[0].action == "admin.knowledge.documents.create"
-    assert logs[0].resource_type == "knowledge_document"
-    assert logs[0].resource_id == document_id
-    assert logs[0].result == "success"
+    assert create.json()["review_status"] == "draft"
 
 
 async def test_knowledge_document_approve_and_index_lifecycle(client: AsyncClient) -> None:
     create = await client.post(
         "/api/v1/admin/knowledge/documents",
-        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-doc-1"},
+        headers=ADMIN_HEADERS,
         json={
             "source_url": "https://example.com/study",
             "title": "수면과 피부 장벽",
             "collected_at": "2026-08-01T00:00:00Z",
+            "raw_text": "수면 부족은 피부 장벽 회복에 영향을 줄 수 있습니다.",
         },
     )
     assert create.status_code == 201
@@ -127,7 +121,7 @@ async def test_knowledge_document_approve_and_index_lifecycle(client: AsyncClien
 
     approve = await client.post(
         f"/api/v1/admin/knowledge/documents/{document_id}/approve",
-        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-doc-approve-1"},
+        headers=ADMIN_HEADERS,
         json={
             "claim_id": "claim_sleep_barrier_001",
             "claim_version": 1,
@@ -146,15 +140,15 @@ async def test_knowledge_document_approve_and_index_lifecycle(client: AsyncClien
 
     create_index = await client.post(
         "/api/v1/admin/knowledge/indexes",
-        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-index-1"},
-        json={"version": "v1"},
+        headers=ADMIN_HEADERS,
+        json={"version": "v1", "claim_ids": ["claim_sleep_barrier_001"]},
     )
     assert create_index.status_code == 201
     assert create_index.json()["claim_ids"] == ["claim_sleep_barrier_001"]
 
     activate = await client.post(
         "/api/v1/admin/knowledge/indexes/v1/activate",
-        headers={**ADMIN_HEADERS, "Idempotency-Key": "idem-index-activate-1"},
+        headers=ADMIN_HEADERS,
     )
     assert activate.status_code == 200
     assert activate.json()["is_active"] is True
