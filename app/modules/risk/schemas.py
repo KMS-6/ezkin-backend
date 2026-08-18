@@ -35,10 +35,16 @@ class ReportEvidence(BaseModel):
     evidence_ids: list[str]
 
 
+class ReportPeriod(BaseModel):
+    period_days: int
+    start_date: date
+    end_date: date
+
+
 class ReportResult(BaseModel):
     report_id: str
     status: str
-    period: dict | None = None
+    period: ReportPeriod | None = None
     summary: str | None = None
     observations: list[ReportEvidence] | None = None
     patterns: list[ReportEvidence] | None = None
