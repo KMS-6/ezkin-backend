@@ -39,9 +39,7 @@ def _dt(d: date) -> datetime:
     return datetime(d.year, d.month, d.day, 12, 0, 0, tzinfo=UTC)
 
 
-async def _seed_scans(
-    db: AsyncSession, persona_id: str, count: int, base: date | None = None
-):
+async def _seed_scans(db: AsyncSession, persona_id: str, count: int, base: date | None = None):
     if base is None:
         base = date.today()
     for i in range(count):
