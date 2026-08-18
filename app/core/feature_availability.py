@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.onboarding import Consent
-from app.models.persona import Persona
+from app.models.persona import Persona, WatchStatus
 from app.models.skin_scan import SkinScan
 
 PATTERN_ANALYSIS_MIN_SCANS = 3
@@ -20,18 +20,17 @@ async def _consented(db: AsyncSession, persona_id: str, consent_type: str) -> bo
     return bool(result.scalar_one_or_none())
 
 
-async def compute_feature_availability(db: AsyncSession, persona_id: str) -> list[dict]:
+async def compute_feature_availability(db: AsyncSession, persona: Persona) -> list[dict]:
     """Rule-based feature-availability from persona watch_status, consent + observed data."""
-    persona = await db.get(Persona, persona_id)
-    watch_ok = persona is not None and persona.watch_status == "has_watch"
+    watch_ok = persona.watch_status == WatchStatus.HAS_WATCH
 
-    health_ok = await _consented(db, persona_id, "apple_health")
-    weather_ok = await _consented(db, persona_id, "weather_location")
+    health_ok = await _consented(db, persona.id, "apple_health")
+    weather_ok = await _consented(db, persona.id, "weather_location")
 
     cutoff = datetime.now(UTC) - timedelta(days=PATTERN_ANALYSIS_WINDOW_DAYS)
     result = await db.execute(
         select(func.count(SkinScan.id)).where(
-            SkinScan.persona_id == persona_id,
+            SkinScan.persona_id == persona.id,
             SkinScan.captured_at >= cutoff,
             SkinScan.status == "completed",
         )

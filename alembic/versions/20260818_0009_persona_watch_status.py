@@ -21,7 +21,14 @@ def upgrade() -> None:
         ),
     )
     # persona_003(생리 주기·장기 사용 시나리오)은 워치 데이터 보유로 설정
-    op.execute("UPDATE personas SET watch_status = 'has_watch' WHERE id = 'persona_003'")
+    connection = op.get_bind()
+    result = connection.execute(
+        sa.text("UPDATE personas SET watch_status = 'has_watch' WHERE id = 'persona_003'")
+    )
+    if result.rowcount == 0:
+        raise RuntimeError(
+            "persona_003 not found — migration 20260818_0008 must run before this one"
+        )
 
 
 def downgrade() -> None:

@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from app.models.persona import WatchStatus
+
 
 class FeatureAvailability(BaseModel):
     feature: str
@@ -19,5 +21,5 @@ class PersonaListResponse(BaseModel):
 
 
 class PersonaDetailResponse(PersonaSummary):
-    watch_status: str
+    watch_status: WatchStatus
     features: list[FeatureAvailability]
