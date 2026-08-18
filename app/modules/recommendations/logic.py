@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.onboarding import OnboardingProfile
 from app.models.recommendation import Product
-from app.models.skin_scan import SkinScan
+from app.models.scan import SkinScan
 
 CONCERN_TO_CATEGORY = {
     "cn_dryness": "moisturizer",

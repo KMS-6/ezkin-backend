@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.skin_scan import SkinScan
+from app.models.scan import SkinScan
 
 QUESTIONNAIRE_ANSWERS = json.dumps(
     [
