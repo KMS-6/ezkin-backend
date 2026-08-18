@@ -11,8 +11,8 @@ from app.models.onboarding import Consent, OnboardingProfile
 from app.models.persona import Persona
 from app.models.recommendation import Product
 from app.models.report import Report
+from app.models.scan import SkinScan
 from app.models.shelf import Cosmetic
-from app.models.skin_scan import SkinScan
 from app.models.sos import SosMessage, SosSession
 from app.models.user import User
 from app.models.weather import WeatherSnapshot

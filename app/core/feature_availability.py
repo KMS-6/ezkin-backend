@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.onboarding import Consent
-from app.models.skin_scan import SkinScan
+from app.models.scan import SkinScan
 
 PATTERN_ANALYSIS_MIN_SCANS = 3
 PATTERN_ANALYSIS_WINDOW_DAYS = 14

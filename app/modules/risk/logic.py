@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.metrics import DailyMetric
 from app.models.onboarding import Consent
-from app.models.skin_scan import SkinScan
+from app.models.scan import SkinScan
 from app.models.weather import WeatherSnapshot
 
 RISK_LEVELS = ["low", "moderate", "high", "very_high"]

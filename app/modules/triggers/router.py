@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.mock_persona import get_persona_id
 from app.db.session import get_db
 from app.models.generation import Generation
-from app.models.skin_scan import SkinScan
+from app.models.scan import SkinScan
 from app.models.sos import SosMessage, SosSession
 from app.modules.triggers.logic import build_chat_reply, build_pattern_analysis
 from app.modules.triggers.schemas import (

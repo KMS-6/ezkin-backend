@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.metrics import DailyMetric
-from app.models.skin_scan import SkinScan
+from app.models.scan import SkinScan
 from app.models.sos import SosMessage
 from app.modules.risk.logic import load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
