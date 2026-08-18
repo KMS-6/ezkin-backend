@@ -24,9 +24,9 @@ from app.core.idempotency import check_idempotency, store_idempotency
 from app.core.mock_persona import get_persona_id
 from app.core.storage import read_and_validate_image, store_bytes
 from app.db.session import get_db
-from app.models.skin_scan import SkinScan
-from app.modules.skin_scans.analysis import score_questionnaire
-from app.modules.skin_scans.schemas import (
+from app.models.scan import SkinScan
+from app.modules.scans.analysis import score_questionnaire
+from app.modules.scans.schemas import (
     SkinScanAccepted,
     SkinScanFailure,
     SkinScanListItem,
