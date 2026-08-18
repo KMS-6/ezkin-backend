@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from httpx import AsyncClient
 
@@ -72,6 +72,13 @@ async def test_eligibility_and_report_lifecycle(
     assert body["status"] == "completed"
     assert len(body["observations"]) == 1
     assert body["observations"][0]["evidence_ids"]
+    assert body["safety_status"] == "wellness_only"
+    period = body["period"]
+    assert period["period_days"] == 14
+    expected_end_date = date.today()
+    expected_start_date = expected_end_date - timedelta(days=13)
+    assert period["start_date"] == expected_start_date.isoformat()
+    assert period["end_date"] == expected_end_date.isoformat()
 
     feedback = await client.post(
         f"/api/v1/generations/{report_id}/feedback",

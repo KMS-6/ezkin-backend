@@ -82,11 +82,12 @@ async def create_report(
             detail="insufficient_data_history: 리포트 생성에 필요한 관찰 데이터가 부족합니다.",
         )
 
-    content = await build_report_content(db, persona_id, payload.period_days)
+    end_date = payload.end_date or date.today()
+    content = await build_report_content(db, persona_id, payload.period_days, end_date)
     report = Report(
         persona_id=persona_id,
         period_days=payload.period_days,
-        end_date=payload.end_date or date.today(),
+        end_date=end_date,
         locale=payload.locale,
         status="completed",
         generated_at=datetime.now(UTC),

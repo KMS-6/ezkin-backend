@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -230,14 +230,19 @@ async def count_observation_days(db: AsyncSession, persona_id: str, window_days:
     return result.scalar_one() or 0
 
 
-async def build_report_content(db: AsyncSession, persona_id: str, period_days: int) -> dict:
-    cutoff = datetime.now(UTC) - timedelta(days=period_days)
+async def build_report_content(
+    db: AsyncSession, persona_id: str, period_days: int, end_date: date
+) -> dict:
+    start_date = end_date - timedelta(days=period_days - 1)
+    window_start = datetime.combine(start_date, time.min, tzinfo=UTC)
+    window_end = datetime.combine(end_date, time.max, tzinfo=UTC)
     scans_result = await db.execute(
         select(SkinScan)
         .where(
             SkinScan.persona_id == persona_id,
             SkinScan.status == "completed",
-            SkinScan.captured_at >= cutoff,
+            SkinScan.captured_at >= window_start,
+            SkinScan.captured_at <= window_end,
         )
         .order_by(SkinScan.captured_at)
     )
@@ -245,7 +250,9 @@ async def build_report_content(db: AsyncSession, persona_id: str, period_days: i
 
     metrics_result = await db.execute(
         select(DailyMetric).where(
-            DailyMetric.persona_id == persona_id, DailyMetric.metric_date >= cutoff.date()
+            DailyMetric.persona_id == persona_id,
+            DailyMetric.metric_date >= start_date,
+            DailyMetric.metric_date <= end_date,
         )
     )
     metrics = list(metrics_result.scalars())
@@ -320,11 +327,16 @@ async def build_report_content(db: AsyncSession, persona_id: str, period_days: i
     )
 
     return {
-        "period": {"days": period_days},
+        "period": {
+            "period_days": period_days,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+        },
         "summary": summary,
         "observations": observations,
         "patterns": patterns,
         "recommendations": recommendations,
         "limitations": "의료적 진단이 아닌 참고 정보이며, 공통 지식(RAG) 근거는 미연동입니다.",
-        "safety_status": "ok",
+        # 명세서상 고정값: 이 리포트는 의료적 진단이 아닌 웰니스 참고 정보임을 나타내는 상수.
+        "safety_status": "wellness_only",
     }
