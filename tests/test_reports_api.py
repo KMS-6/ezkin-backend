@@ -40,15 +40,18 @@ def _dt(d: date) -> datetime:
 
 
 async def _seed_scans(
-    db: AsyncSession, persona_id: str, count: int, base: date = date(2026, 8, 16)
+    db: AsyncSession, persona_id: str, count: int, base: date | None = None
 ):
+    if base is None:
+        base = date.today()
     for i in range(count):
         d = base - __import__("datetime").timedelta(days=i)
         db.add(
             SkinScan(
                 persona_id=persona_id,
+                capture_method="camera",
                 status="completed",
-                captured_at=_dt(d),
+                created_at=_dt(d),
                 scores={"flushing": 0.4, "oiliness": 0.3, "moisture": 0.6, "sensitivity": 0.2},
             )
         )
@@ -168,8 +171,9 @@ class TestPatternAnalysis:
     async def test_scan_with_null_scores_returns_409(self, client, db_session):
         scan = SkinScan(
             persona_id=PERSONA,
+            capture_method="camera",
             status="completed",
-            captured_at=_dt(date(2026, 8, 15)),
+            created_at=_dt(date(2026, 8, 15)),
             scores=None,
         )
         db_session.add(scan)
@@ -186,8 +190,9 @@ class TestPatternAnalysis:
     async def test_pattern_analysis_returns_schema(self, client, db_session):
         scan = SkinScan(
             persona_id=PERSONA,
+            capture_method="camera",
             status="completed",
-            captured_at=_dt(date(2026, 8, 15)),
+            created_at=_dt(date(2026, 8, 15)),
             scores={"flushing": 0.6},
         )
         db_session.add(scan)

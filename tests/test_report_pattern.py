@@ -27,14 +27,15 @@ def _dt(d: date, hour: int = 12) -> datetime:
 async def _add_scan(
     db: AsyncSession,
     persona_id: str,
-    captured_at: datetime,
+    created_at: datetime,
     status: str = "completed",
     scores: dict | None = None,
 ) -> SkinScan:
     scan = SkinScan(
         persona_id=persona_id,
+        capture_method="camera",
         status=status,
-        captured_at=captured_at,
+        created_at=created_at,
         scores=scores,
     )
     db.add(scan)

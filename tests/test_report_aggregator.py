@@ -25,14 +25,15 @@ _UNSET = object()
 
 def _make_scan(
     persona_id: str,
-    captured_at: datetime,
+    created_at: datetime,
     scores: object = _UNSET,
 ) -> SkinScan:
     resolved = _DEFAULT_SCORES if scores is _UNSET else scores
     return SkinScan(
         persona_id=persona_id,
+        capture_method="camera",
         status="completed",
-        captured_at=captured_at,
+        created_at=created_at,
         scores=resolved,  # type: ignore[arg-type]
     )
 

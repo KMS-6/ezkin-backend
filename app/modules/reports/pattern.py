@@ -35,25 +35,25 @@ async def analyze_pattern(
         )
 
     # 72시간 윈도우 내 주변 스캔 조회
-    window_start = scan.captured_at - timedelta(hours=_WINDOW_HOURS)
-    window_end = scan.captured_at + timedelta(hours=_WINDOW_HOURS)
+    window_start = scan.created_at - timedelta(hours=_WINDOW_HOURS)
+    window_end = scan.created_at + timedelta(hours=_WINDOW_HOURS)
 
     surrounding_stmt = (
         select(SkinScan)
         .where(
             SkinScan.persona_id == persona_id,
             SkinScan.id != scan_id,
-            SkinScan.captured_at >= window_start,
-            SkinScan.captured_at <= window_end,
+            SkinScan.created_at >= window_start,
+            SkinScan.created_at <= window_end,
             SkinScan.scores.is_not(None),
         )
-        .order_by(SkinScan.captured_at)
+        .order_by(SkinScan.created_at)
     )
     surrounding_result = await db.execute(surrounding_stmt)
     surrounding_scans = surrounding_result.scalars().all()
 
     # 원시 사실 구성 (시간순 정렬)
-    all_scans = sorted([scan] + list(surrounding_scans), key=lambda s: s.captured_at)
+    all_scans = sorted([scan] + list(surrounding_scans), key=lambda s: s.created_at)
     raw_facts = _build_raw_facts(all_scans)
 
     # 동시발생 패턴 감지 (임계값 이상일 때만)
@@ -75,7 +75,7 @@ def _build_raw_facts(scans: list[SkinScan]) -> list[str]:
     for scan in scans:
         if scan.scores is None:
             continue
-        date_str = scan.captured_at.strftime("%Y-%m-%d %H:%M")
+        date_str = scan.created_at.strftime("%Y-%m-%d %H:%M")
         for metric, value in scan.scores.items():
             facts.append(f"{date_str}에 {metric} 점수가 {value:.2f}였습니다.")
     return facts
