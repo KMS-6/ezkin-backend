@@ -85,9 +85,7 @@ async def test_health_data_discarded_when_apple_health_consent_explicitly_false(
     assert revoke.status_code == 200
 
     result = await db_session.execute(
-        select(Consent).where(
-            Consent.persona_id == TEST_PERSONA_ID, Consent.type == "apple_health"
-        )
+        select(Consent).where(Consent.persona_id == TEST_PERSONA_ID, Consent.type == "apple_health")
     )
     assert result.scalar_one().consented is False
 
