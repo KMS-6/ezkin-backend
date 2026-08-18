@@ -5,9 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.feature_availability import compute_feature_availability
-from app.core.mock_persona import get_persona_id
+from app.core.mock_persona import get_persona, get_persona_id
 from app.db.session import get_db
 from app.models.onboarding import Consent, OnboardingProfile
+from app.models.persona import Persona
 from app.modules.onboarding.schemas import (
     ConsentListResponse,
     ConsentOut,
@@ -23,6 +24,7 @@ from app.modules.onboarding.schemas import (
 router = APIRouter(tags=["onboarding"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 PersonaId = Annotated[str, Depends(get_persona_id)]
+PersonaMock = Annotated[Persona, Depends(get_persona)]
 
 SKIN_CONCERNS = [
     {"id": "cn_acne", "label": "트러블·여드름"},
@@ -98,9 +100,9 @@ async def update_consent(
 
 @router.get("/me/feature-availability", response_model=FeatureAvailabilityListResponse)
 async def get_feature_availability(
-    db: DbSession, persona_id: PersonaId
+    db: DbSession, persona: PersonaMock
 ) -> FeatureAvailabilityListResponse:
-    features = await compute_feature_availability(db, persona_id)
+    features = await compute_feature_availability(db, persona)
     return FeatureAvailabilityListResponse(
         features=[FeatureAvailability(**feature) for feature in features]
     )

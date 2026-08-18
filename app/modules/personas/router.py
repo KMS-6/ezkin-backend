@@ -35,10 +35,11 @@ async def get_persona_detail(persona_id: str, db: DbSession) -> PersonaDetailRes
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="등록되지 않은 페르소나입니다."
         )
-    features = await compute_feature_availability(db, persona.id)
+    features = await compute_feature_availability(db, persona)
     return PersonaDetailResponse(
         id=persona.id,
         label=persona.label,
         summary_traits=persona.summary_traits,
+        watch_status=persona.watch_status,
         features=features,
     )

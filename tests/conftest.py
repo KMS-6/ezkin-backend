@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models.persona import Persona
+from app.models.persona import Persona, WatchStatus
 
 TEST_PERSONA_ID = "persona_001"
 ADMIN_HEADERS = {"X-Admin-Key": "test-only-admin-key"}
@@ -44,6 +44,14 @@ async def _session_factory(
                 id=TEST_PERSONA_ID,
                 label="테스트 페르소나",
                 summary_traits={"skin_type": "복합성"},
+            )
+        )
+        session.add(
+            Persona(
+                id="persona_003",
+                label="생리 주기·장기 사용 시나리오",
+                summary_traits={"skin_type": "민감성"},
+                watch_status=WatchStatus.HAS_WATCH,
             )
         )
         await session.commit()

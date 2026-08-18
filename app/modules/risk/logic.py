@@ -9,7 +9,7 @@ from app.models.scan import SkinScan
 from app.models.weather import WeatherSnapshot
 
 RISK_LEVELS = ["low", "moderate", "high", "very_high"]
-IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal", "alcohol"}
+IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal"}
 HIGH_SCORE_THRESHOLD = 0.66
 
 # 기능명세서_briefing.md 6.1절 가중치(초기값, Mock Data·QA로 조정 예정).

@@ -17,7 +17,7 @@ from app.modules.triggers.nlu import BODY_AREA_ALIASES, INGREDIENT_ALIASES, pars
 
 PATTERN_WINDOW_HOURS = 72
 PATTERN_HISTORY_DAYS = 90
-IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal", "alcohol"}
+IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal"}
 ELEVATED_THRESHOLD = 0.66
 MIN_SAMPLE_SIZE = 3
 
