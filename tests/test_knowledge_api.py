@@ -225,6 +225,7 @@ async def test_internal_search_after_full_flow(client) -> None:
 
     search_resp = await client.post(
         "/internal/knowledge/search",
+        headers=ADMIN_HEADERS,
         json={"keywords": ["세라마이드"], "limit": 5},
     )
     assert search_resp.status_code == 200
@@ -234,9 +235,19 @@ async def test_internal_search_after_full_flow(client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_internal_search_without_admin_key_returns_403(client) -> None:
+    resp = await client.post(
+        "/internal/knowledge/search",
+        json={"keywords": ["세라마이드"], "limit": 5},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_internal_search_no_match_returns_empty(client) -> None:
     search_resp = await client.post(
         "/internal/knowledge/search",
+        headers=ADMIN_HEADERS,
         json={"keywords": ["없는키워드xyz"], "limit": 5},
     )
     assert search_resp.status_code == 200
@@ -248,6 +259,7 @@ async def test_internal_search_invalid_limit_returns_422(client) -> None:
     # limit < 1
     resp_low = await client.post(
         "/internal/knowledge/search",
+        headers=ADMIN_HEADERS,
         json={"keywords": ["보습"], "limit": 0},
     )
     assert resp_low.status_code == 422
@@ -255,6 +267,7 @@ async def test_internal_search_invalid_limit_returns_422(client) -> None:
     # limit > 20
     resp_high = await client.post(
         "/internal/knowledge/search",
+        headers=ADMIN_HEADERS,
         json={"keywords": ["보습"], "limit": 21},
     )
     assert resp_high.status_code == 422
