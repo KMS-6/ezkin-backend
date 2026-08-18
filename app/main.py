@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.modules.knowledge.internal_router import router as internal_knowledge_router
 
 OPENAPI_DOCUMENT = Path(__file__).resolve().parent.parent / "docs" / "openapi.yaml"
 
@@ -34,6 +35,7 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 app.include_router(api_router, prefix=settings.api_prefix)
+app.include_router(internal_knowledge_router)
 
 
 @app.get("/docs/openapi.yaml", include_in_schema=False)

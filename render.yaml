@@ -24,6 +24,8 @@ services:
         sync: false
       - key: AAC_ACCESS_TOKEN_TTL_SECONDS
         value: "86400"
+      - key: AAC_ADMIN_KEY
+        sync: false
 
 databases:
   - name: ezkin-db

@@ -17,3 +17,17 @@ def test_cors_origins_accepts_deployed_frontend() -> None:
     origin = "https://wize-web.onrender.com"
 
     assert Settings(cors_origins=[origin]).cors_origins == [origin]
+
+
+def test_production_requires_non_default_admin_key() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="AAC_ADMIN_KEY"):
+        Settings(app_env="production", admin_key="dev-admin-key")
+
+    with pytest.raises(ValidationError, match="AAC_ADMIN_KEY"):
+        Settings(app_env="production", admin_key="")
+
+    settings = Settings(app_env="production", admin_key="strong-production-secret-key")
+    assert settings.admin_key == "strong-production-secret-key"
