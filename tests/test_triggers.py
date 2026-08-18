@@ -219,6 +219,11 @@ async def test_sos_retinol_question_is_personalized_by_risk_and_my_shelf(
     )
     assert metric_response.status_code == 200
 
+    health_consent = await client.put(
+        "/api/v1/consents/apple_health", headers=persona_headers, json={"consented": True}
+    )
+    assert health_consent.status_code == 200
+
     health_data_response = await client.post(
         "/api/v1/integrations/health-data",
         headers={**PARTNER_HEADERS, "Idempotency-Key": "idem-sos-retinol-health"},

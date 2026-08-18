@@ -9,6 +9,7 @@ from app.core.mock_persona import get_persona_id
 from app.core.partner_auth import require_partner_key
 from app.db.session import get_db
 from app.models.metrics import DailyMetric
+from app.models.onboarding import Consent
 from app.models.persona import Persona
 from app.modules.health_metrics.schemas import (
     DailyMetricIn,
@@ -50,19 +51,26 @@ async def receive_health_data(
     if cached is not None:
         return HealthDataReceived(**cached)
 
-    result = await db.execute(
-        select(DailyMetric).where(
-            DailyMetric.persona_id == persona.id, DailyMetric.metric_date == payload.metric_date
-        )
+    consent_result = await db.execute(
+        select(Consent).where(Consent.persona_id == persona.id, Consent.type == "apple_health")
     )
-    metric = result.scalar_one_or_none()
-    if metric is None:
-        metric = DailyMetric(persona_id=persona.id, metric_date=payload.metric_date)
-        db.add(metric)
-    metric.sleep_hours = payload.sleep_hours
-    metric.hrv_ms = payload.hrv_ms
-    metric.active_energy_kcal = payload.active_energy_kcal
-    await db.flush()
+    consent = consent_result.scalar_one_or_none()
+    health_consented = consent is not None and consent.consented
+    if health_consented:
+        result = await db.execute(
+            select(DailyMetric).where(
+                DailyMetric.persona_id == persona.id,
+                DailyMetric.metric_date == payload.metric_date,
+            )
+        )
+        metric = result.scalar_one_or_none()
+        if metric is None:
+            metric = DailyMetric(persona_id=persona.id, metric_date=payload.metric_date)
+            db.add(metric)
+        metric.sleep_hours = payload.sleep_hours
+        metric.hrv_ms = payload.hrv_ms
+        metric.active_energy_kcal = payload.active_energy_kcal
+        await db.flush()
 
     response = HealthDataReceived()
     cached = await store_idempotency(
