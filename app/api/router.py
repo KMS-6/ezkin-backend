@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.modules.care.router import router as care_router
 from app.modules.knowledge.router import router as knowledge_router
 from app.modules.quick_care.router import router as quick_care_router
+from app.modules.reports.router import router as reports_router
 from app.modules.scans.router import router as scans_router
 from app.modules.shelf.router import router as shelf_router
 from app.modules.users.router import router as users_router
@@ -13,4 +14,5 @@ api_router.include_router(shelf_router)
 api_router.include_router(care_router)
 api_router.include_router(quick_care_router)
 api_router.include_router(knowledge_router)
+api_router.include_router(reports_router)
 api_router.include_router(scans_router)
