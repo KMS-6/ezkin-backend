@@ -10,7 +10,7 @@ from app.models.metrics import DailyMetric
 from app.models.onboarding import Consent, OnboardingProfile
 from app.models.persona import Persona
 from app.models.recommendation import Product
-from app.models.report import DailyMetrics, Report
+from app.models.report import Report
 from app.models.scan import SkinScan
 from app.models.shelf import Cosmetic
 from app.models.sos import SosMessage, SosSession
@@ -25,7 +25,6 @@ __all__ = [
     "Consent",
     "Cosmetic",
     "DailyMetric",
-    "DailyMetrics",
     "Generation",
     "GenerationFeedback",
     "IdempotencyRecord",
