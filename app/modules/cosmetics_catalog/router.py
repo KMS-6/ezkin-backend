@@ -3,11 +3,23 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.admin_auth import require_admin
+from app.core.audit_log import write_audit_log
+from app.core.idempotency import check_idempotency, store_idempotency
 from app.core.mock_persona import get_persona_id
 from app.core.storage import save_upload
 from app.db.session import get_db
@@ -166,9 +178,33 @@ async def list_ingredients(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_admin)],
 )
-async def create_ingredient(payload: IngredientCreateIn, db: DbSession) -> IngredientOut:
+async def create_ingredient(
+    payload: IngredientCreateIn,
+    db: DbSession,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
+) -> IngredientOut:
+    idempotency_payload = payload.model_dump()
+    cached = await check_idempotency(
+        db,
+        scope="admin:ingredients:create",
+        subject="admin",
+        key=idempotency_key,
+        payload=idempotency_payload,
+    )
+    if cached is not None:
+        return IngredientOut(**cached)
+
     result = await db.execute(select(Ingredient).where(Ingredient.name == payload.name.strip()))
     if result.scalar_one_or_none() is not None:
+        await write_audit_log(
+            db,
+            actor="admin",
+            action="admin.ingredients.create",
+            resource_type="ingredient",
+            resource_id=None,
+            result="conflict",
+        )
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="ingredient_already_exists: 이미 등록된 성분입니다.",
@@ -182,11 +218,35 @@ async def create_ingredient(payload: IngredientCreateIn, db: DbSession) -> Ingre
         description=payload.description,
     )
     db.add(ingredient)
-    await db.commit()
-    return IngredientOut(
+    await db.flush()
+
+    await write_audit_log(
+        db,
+        actor="admin",
+        action="admin.ingredients.create",
+        resource_type="ingredient",
+        resource_id=ingredient.id,
+        result="success",
+    )
+
+    response = IngredientOut(
         id=ingredient.id,
         name=ingredient.name,
         risk_level=ingredient.risk_level,
         target_concern=ingredient.target_concern,
         description=ingredient.description,
     )
+    cached = await store_idempotency(
+        db,
+        scope="admin:ingredients:create",
+        subject="admin",
+        key=idempotency_key,
+        payload=idempotency_payload,
+        response_status=status.HTTP_201_CREATED,
+        response_body=response.model_dump(),
+    )
+    if cached is not None:
+        return IngredientOut(**cached)
+
+    await db.commit()
+    return response
