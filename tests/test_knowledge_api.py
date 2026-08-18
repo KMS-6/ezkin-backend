@@ -12,7 +12,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 
-ADMIN_HEADERS = {"X-Admin-Key": "dev-admin-key"}
+ADMIN_HEADERS = {"X-Admin-Key": "test-only-admin-key"}
 COLLECTED_AT = datetime.now(UTC).isoformat()
 RAW_TEXT = (
     "피부 보습에는 세라마이드 성분이 중요합니다.\n\n수분 유지를 위해 히알루론산도 효과적입니다."

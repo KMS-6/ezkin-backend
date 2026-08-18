@@ -133,6 +133,8 @@ Render는 `develop` 브랜치의 CI가 통과하면 `render.yaml`을 기준으�
 
 - `AAC_CORS_ORIGINS`
 - `AAC_AUTH_SECRET`
+- `AAC_ADMIN_API_KEY`
+- `AAC_PARTNER_API_KEY`
 
 `AAC_DATABASE_URL`은 Render PostgreSQL 연결 문자열에서 자동으로 주입됩니다.
 

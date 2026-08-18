@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.generation import Generation
 from app.models.report import Report
 from app.modules.reports.aggregator import aggregate_scans, check_eligibility
 from app.modules.reports.safety import is_safe
@@ -43,6 +44,8 @@ async def create_report(
         status="processing",
     )
     db.add(report)
+    await db.flush()
+    db.add(Generation(id=str(report.id), persona_id=persona_id, kind="report"))
     await db.commit()
     await db.refresh(report)
 
@@ -116,7 +119,7 @@ async def _process_report(
 
     report.status = "completed"
     report.result = result_payload
-    report.safety_status = "passed"
+    report.safety_status = "wellness_only"
     report.generated_at = datetime.now(tz=UTC)
     await db.commit()
 

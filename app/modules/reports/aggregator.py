@@ -18,13 +18,13 @@ async def check_eligibility(
 
     # completed + scores 있는 스캔의 날짜 목록
     stmt = (
-        select(func.date(SkinScan.created_at))
+        select(func.date(SkinScan.captured_at))
         .where(
             SkinScan.persona_id == persona_id,
             SkinScan.status == "completed",
             SkinScan.scores.is_not(None),
-            func.date(SkinScan.created_at) >= start,
-            func.date(SkinScan.created_at) <= as_of,
+            func.date(SkinScan.captured_at) >= start,
+            func.date(SkinScan.captured_at) <= as_of,
         )
         .distinct()
     )
@@ -54,10 +54,10 @@ async def aggregate_scans(
         .where(
             SkinScan.persona_id == persona_id,
             SkinScan.status == "completed",
-            func.date(SkinScan.created_at) >= start,
-            func.date(SkinScan.created_at) <= as_of,
+            func.date(SkinScan.captured_at) >= start,
+            func.date(SkinScan.captured_at) <= as_of,
         )
-        .order_by(SkinScan.created_at)
+        .order_by(SkinScan.captured_at)
     )
     result = await db.execute(stmt)
     scans = result.scalars().all()

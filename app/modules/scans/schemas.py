@@ -1,65 +1,51 @@
 from datetime import datetime
-from enum import StrEnum
-from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 
-class CaptureMethod(StrEnum):
-    CAMERA = "camera"
-    QUESTIONNAIRE = "questionnaire"
-
-
-class SeverityLevel(StrEnum):
-    NONE = "none"
-    MILD = "mild"
-    MODERATE = "moderate"
-    SEVERE = "severe"
-
-
-class QuestionnaireAnswers(BaseModel):
-    redness: SeverityLevel
-    tightness: SeverityLevel
-    oiliness: SeverityLevel
-    new_lesions: bool
-
-
-# POST 요청 body
-class SkinScanCreate(BaseModel):
-    capture_method: CaptureMethod
-    # 카메라 업로드 시
-    image_key: str | None = Field(default=None, max_length=500)
-    # 문진 시
-    answers: QuestionnaireAnswers | None = None
-
-
-# 202 응답
 class SkinScanAccepted(BaseModel):
-    scan_id: UUID
-    status: str = "processing"
-    capture_method: CaptureMethod
+    scan_id: str
+    status: str
+    capture_method: str
     status_url: str
 
 
-# 스캔 결과 (GET)
-class SkinScanResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class SkinScanFailure(BaseModel):
+    code: str
+    message: str
+    retryable: bool
 
-    scan_id: UUID = Field(alias="id")
-    persona_id: str
-    capture_method: str
+
+class SkinScanModel(BaseModel):
+    provider: str
+    name: str
+    version: str
+
+
+class SkinScanResult(BaseModel):
+    scan_id: str
     status: str
-    lower_accuracy: bool
-    image_key: str | None
-    scores: dict | None
-    failure: dict | None
+    capture_method: str
     created_at: datetime
-    updated_at: datetime
+    lower_accuracy: bool
+    schema_version: str | None = None
+    scores: dict[str, float] | None = None
+    confidence: dict[str, float] | None = None
+    delta_vs_baseline: dict[str, float] | None = None
+    delta_vs_previous: dict[str, float] | None = None
+    model: SkinScanModel | None = None
+    limitation_notice: str | None = None
+    retry_after_seconds: int | None = None
+    failure: SkinScanFailure | None = None
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+class SkinScanListItem(BaseModel):
+    scan_id: str
+    status: str
+    captured_at: datetime
 
 
-# 목록 응답 (커서 기반 페이지네이션)
 class SkinScanListResponse(BaseModel):
-    items: list[SkinScanResponse]
+    items: list[SkinScanListItem]
     next_cursor: str | None = None
+    has_more: bool

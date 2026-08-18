@@ -27,7 +27,7 @@ EZkin Frontend
 2. `KMS-6/ezkin-backend` 저장소를 연결한다.
 3. Blueprint branch를 `develop`로 설정한다.
 4. `AAC_CORS_ORIGINS`에 실제 프런트 origin을 JSON 배열로 입력한다.
-5. `AAC_AUTH_SECRET`에 충분히 긴 무작위 비밀값을 입력한다. 저장소에 커밋하지 않는다.
+5. `AAC_AUTH_SECRET`, `AAC_ADMIN_API_KEY`, `AAC_PARTNER_API_KEY`에 각각 충분히 긴 무작위 비밀값을 입력한다. 저장소에 커밋하지 않는다.
 6. GitHub 저장소 **Settings > Secrets and variables > Actions**에서 `RENDER_DEPLOY_HOOK_URL`을 추가한다.
    - Render 대시보드 → ezkin-api 서비스 → **Settings > Deploy Hook** 에서 URL을 복사한다.
 

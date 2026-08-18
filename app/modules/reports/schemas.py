@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # --- Eligibility ---
 
@@ -17,7 +17,7 @@ class EligibilityResponse(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    period_days: int = 14  # 14 or 30
+    period_days: int = Field(default=14, ge=14)  # 14 or 30
 
 
 class ReportPeriod(BaseModel):

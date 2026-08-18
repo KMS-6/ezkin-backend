@@ -30,6 +30,6 @@ async def test_admin_key_wrong_returns_403() -> None:
 @pytest.mark.asyncio
 async def test_admin_key_correct_returns_200() -> None:
     async with AsyncClient(transport=ASGITransport(app=_app), base_url="http://test") as c:
-        resp = await c.get("/admin-only", headers={"X-Admin-Key": "dev-admin-key"})
+        resp = await c.get("/admin-only", headers={"X-Admin-Key": "test-only-admin-key"})
     assert resp.status_code == 200
     assert resp.json() == {"ok": "true"}

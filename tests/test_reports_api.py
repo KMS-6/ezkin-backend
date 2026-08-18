@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.persona import Persona
 from app.models.scan import SkinScan
 
 PERSONA = "persona_a1_seoyeon"
@@ -20,6 +21,9 @@ async def db_session():
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as s:
+        s.add(Persona(id=PERSONA, label="테스트 페르소나", summary_traits={}))
+        s.add(Persona(id="persona_b1_eunji", label="테스트 페르소나2", summary_traits={}))
+        await s.commit()
         yield s
     await engine.dispose()
 
@@ -49,6 +53,7 @@ async def _seed_scans(db: AsyncSession, persona_id: str, count: int, base: date 
                 persona_id=persona_id,
                 capture_method="camera",
                 status="completed",
+                captured_at=_dt(d),
                 created_at=_dt(d),
                 scores={"flushing": 0.4, "oiliness": 0.3, "moisture": 0.6, "sensitivity": 0.2},
             )
@@ -132,7 +137,7 @@ class TestGetReport:
         assert body["status"] == "completed"
         assert "summary" in body
         assert "observations" in body
-        assert body["safety_status"] == "passed"
+        assert body["safety_status"] == "wellness_only"
 
     async def test_get_report_not_found(self, client):
         resp = await client.get(
@@ -171,6 +176,7 @@ class TestPatternAnalysis:
             persona_id=PERSONA,
             capture_method="camera",
             status="completed",
+            captured_at=_dt(date(2026, 8, 15)),
             created_at=_dt(date(2026, 8, 15)),
             scores=None,
         )
@@ -190,6 +196,7 @@ class TestPatternAnalysis:
             persona_id=PERSONA,
             capture_method="camera",
             status="completed",
+            captured_at=_dt(date(2026, 8, 15)),
             created_at=_dt(date(2026, 8, 15)),
             scores={"flushing": 0.6},
         )
