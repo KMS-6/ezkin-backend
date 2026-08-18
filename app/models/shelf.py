@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class Cosmetic(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    __tablename__ = "cosmetics"
+    __tablename__ = "user_cosmetics"
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     brand: Mapped[str] = mapped_column(String(100))

@@ -12,7 +12,6 @@ class SkinScanAccepted(BaseModel):
 
 class SkinScanFailure(BaseModel):
     code: str
-    message: str
     retryable: bool
 
 

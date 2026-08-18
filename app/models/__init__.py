@@ -11,7 +11,7 @@ from app.models.onboarding import Consent, OnboardingProfile
 from app.models.persona import Persona
 from app.models.recommendation import Product
 from app.models.report import Report
-from app.models.scan import SkinScan
+from app.models.scan import SkinQuestionnaireAnswers, SkinScan
 from app.models.shelf import Cosmetic
 from app.models.sos import SosMessage, SosSession
 from app.models.user import User
@@ -39,6 +39,7 @@ __all__ = [
     "Product",
     "Report",
     "RoutineStep",
+    "SkinQuestionnaireAnswers",
     "SkinScan",
     "SosMessage",
     "SosSession",

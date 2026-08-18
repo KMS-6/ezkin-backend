@@ -24,7 +24,7 @@ from app.core.idempotency import check_idempotency, store_idempotency
 from app.core.mock_persona import get_persona_id
 from app.core.storage import read_and_validate_image, store_bytes
 from app.db.session import get_db
-from app.models.scan import SkinScan
+from app.models.scan import SkinQuestionnaireAnswers, SkinScan
 from app.modules.scans.analysis import score_questionnaire
 from app.modules.scans.schemas import (
     SkinScanAccepted,
@@ -46,6 +46,8 @@ SEVERITY_VALUES = {"none", "mild", "moderate", "severe"}
 # delta_vs_baseline은 최근 유효 스캔 중앙값과의 차이. 기준선이 부족하면 null을 반환한다.
 BASELINE_WINDOW = 10
 BASELINE_MIN_SCANS = 3
+
+_LIMITATION_NOTICE = "조명·기기 차이에 따라 오차가 있을 수 있는 개인 기준 참고 지표입니다."
 
 
 def _validation_error(message: str) -> HTTPException:
@@ -177,41 +179,38 @@ async def create_skin_scan(
         capture_method=capture_method,
         captured_at=captured_at,
         lighting_ok=lighting_ok,
-        questionnaire_version=questionnaire_version if capture_method == "questionnaire" else None,
-        answers=parsed_answers,
     )
 
     if capture_method == "camera":
         assert image_bytes is not None
-        scan.image_key = store_bytes(image_bytes, "skin-scans")
+        scan.image_storage_key = store_bytes(image_bytes, "skin-scans")
         scan.status = "failed"
         scan.failure_code = "model_not_implemented"
-        scan.failure_message = "이미지 기반 분석 모델은 아직 연동되지 않았습니다."
         scan.failure_retryable = False
     else:
         assert parsed_answers is not None
         scores = score_questionnaire(parsed_answers)
-        previous = await _latest_completed_scan(db, persona_id)
-        baseline_history = await _recent_completed_scores(db, persona_id)
-        scan.scores = scores
-        scan.confidence = dict.fromkeys(scores, 0.5)
-        scan.delta_vs_previous = (
-            {
-                metric: round(scores[metric] - previous.scores.get(metric, scores[metric]), 2)
-                for metric in scores
-            }
-            if previous and previous.scores
-            else None
-        )
-        scan.delta_vs_baseline = _compute_delta_vs_baseline(scores, baseline_history)
+        scan.redness_score = scores.get("redness")
+        scan.dryness_score = scores.get("dryness")
+        scan.oiliness_score = scores.get("oiliness")
+        scan.redness_confidence = 0.5
+        scan.dryness_confidence = 0.5
+        scan.oiliness_confidence = 0.5
         scan.lower_accuracy = True
         scan.status = "completed"
-        scan.limitation_notice = (
-            "조명·기기 차이에 따라 오차가 있을 수 있는 개인 기준 참고 지표입니다."
-        )
+        scan.completed_at = datetime.now(UTC)
 
     db.add(scan)
     await db.flush()
+
+    if capture_method == "questionnaire" and parsed_answers:
+        qa = SkinQuestionnaireAnswers(
+            scan_id=scan.id,
+            questionnaire_version=questionnaire_version or "v1",
+            answers=parsed_answers,
+            created_at=datetime.now(UTC),
+        )
+        db.add(qa)
 
     status_url = f"{settings.api_prefix}/skin-scans/{scan.id}"
     result = SkinScanAccepted(
@@ -248,6 +247,19 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="스캔을 찾을 수 없습니다."
         )
+
+    delta_vs_previous: dict[str, float] | None = None
+    delta_vs_baseline: dict[str, float] | None = None
+    if scan.status == "completed" and scan.scores:
+        previous = await _latest_completed_scan(db, persona_id)
+        if previous and previous.id != scan.id and previous.scores:
+            delta_vs_previous = {
+                metric: round(scan.scores[metric] - previous.scores.get(metric, scan.scores[metric]), 2)
+                for metric in scan.scores
+            }
+        baseline_history = await _recent_completed_scores(db, persona_id)
+        delta_vs_baseline = _compute_delta_vs_baseline(scan.scores, baseline_history)
+
     return SkinScanResult(
         scan_id=str(scan.id),
         status=scan.status,
@@ -257,21 +269,17 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         schema_version="skin_observation.v1" if scan.status == "completed" else None,
         scores=scan.scores,
         confidence=scan.confidence,
-        delta_vs_baseline=scan.delta_vs_baseline,
-        delta_vs_previous=scan.delta_vs_previous,
+        delta_vs_baseline=delta_vs_baseline,
+        delta_vs_previous=delta_vs_previous,
         model=(
             SkinScanModel(provider="TBD", name="TBD", version="TBD")
             if scan.status == "completed"
             else None
         ),
-        limitation_notice=scan.limitation_notice,
+        limitation_notice=_LIMITATION_NOTICE if scan.status == "completed" else None,
         retry_after_seconds=3 if scan.status == "processing" else None,
         failure=(
-            SkinScanFailure(
-                code=scan.failure_code,
-                message=scan.failure_message,
-                retryable=scan.failure_retryable,
-            )
+            SkinScanFailure(code=scan.failure_code, retryable=scan.failure_retryable)
             if scan.status == "failed"
             else None
         ),
