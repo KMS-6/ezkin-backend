@@ -1,6 +1,6 @@
 ---
 name: "senior-security"
-description: Use when the user asks for STRIDE threat modeling, DREAD risk scoring, data-flow-diagram threat analysis, or a quick secret scan — or when a security request needs routing to the right specialist skill (pen-testing, incident response, cloud posture, red team, AI security, threat hunting, secure code review). This skill owns threat modeling; everything else routes to a sibling.
+description: Use when the user asks for STRIDE threat modeling, DREAD risk scoring, data-flow-diagram threat analysis, or a quick secret scan. Covers Samsung Health 생체 데이터 전송 보안, X-User-Id 헤더 인증 위협 모델링, API secret 스캔. This skill owns threat modeling; secure code review routes to code-reviewer or adversarial-reviewer.
 ---
 
 # Senior Security Engineer — Threat Modeling + Security Router
@@ -11,18 +11,10 @@ This skill does exactly one job itself — **STRIDE/DREAD threat modeling** (plu
 
 | The user wants... | Route to | Why that skill owns it |
 |---|---|---|
-| Vulnerability assessment, pen-test methodology, OWASP Top 10 testing | `../security-pen-testing/` | Ships `vulnerability_scanner.py` + `dependency_auditor.py` with exit-code contracts |
-| Incident triage, SEV classification, forensics, containment | `../incident-response/` | SEV1–SEV4 taxonomy, NIST SP 800-61 phases, `incident_triage.py` |
-| Production outage command (non-security incidents) | `../incident-commander/` | Severity classifier + timeline + postmortem tools |
-| Security monitoring, CVE triage SLAs, compliance checks (SOC 2 etc.), security headers | `../senior-secops/` | `security_scanner.py` + `compliance_checker.py`, CVE SLA table |
 | Hostile/adversarial code review | `../adversarial-reviewer/` | 3-persona review with BLOCK/CONCERNS/CLEAN verdict |
-| Secure code review as part of general review | `../code-reviewer/` | Language dispatch + regression fixtures |
-| Cloud IAM escalation paths, S3 exposure, security groups | `../cloud-security/` | `cloud_posture_check.py` with per-check exit codes |
-| Threat hunting, IOC sweeps, anomaly detection | `../threat-detection/` | z-score anomaly + IOC staleness tooling |
-| Red-team engagement planning, ATT&CK kill chains | `../red-team/` | `engagement_planner.py` with authorization gate |
-| LLM/AI attack surface (prompt injection, poisoning) | `../ai-security/` | ATLAS-mapped `ai_threat_scanner.py` |
+| Secure code review as part of general review | `../code-reviewer/` | Python + Kotlin language dispatch |
 
-If the request spans lanes (e.g., "secure this new architecture"), do the threat model here first — its output (prioritized threats + mitigations) tells you which siblings to load next. Never bulk-load multiple security skills speculatively.
+If the request spans lanes (e.g., "secure this new architecture"), do the threat model here first — its output (prioritized threats + mitigations) tells you which sibling to load next.
 
 ## What This Skill Owns: STRIDE Threat Modeling
 

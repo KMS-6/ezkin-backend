@@ -63,6 +63,9 @@ db.sqlite3
 db.sqlite3-journal
 *.db
 
+# Local image uploads (app.core.storage default AAC_UPLOAD_DIR)
+/storage/
+
 # Flask stuff:
 instance/
 .webassets-cache
@@ -218,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local Git worktrees
+/worktrees/
