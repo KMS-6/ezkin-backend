@@ -1,45 +1,21 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.mock_persona import get_persona_id
 from app.db.session import get_db
 from app.models.generation import Generation
-from app.models.scan import SkinScan
 from app.models.sos import SosMessage, SosSession
-from app.modules.triggers.logic import build_chat_reply, build_pattern_analysis
-from app.modules.triggers.schemas import (
-    PatternAnalysisOut,
-    SosMessageIn,
-    SosMessageOut,
-    SosSessionOut,
-)
+from app.modules.triggers.logic import build_chat_reply
+from app.modules.triggers.schemas import SosMessageIn, SosMessageOut, SosSessionOut
 
 router = APIRouter(tags=["triggers"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 PersonaId = Annotated[str, Depends(get_persona_id)]
 
 QUICK_REPLIES = ["일식을 먹었어요", "트러블이 돋아요", "제품이 안 맞는 것 같아요"]
-
-
-@router.get("/pattern-analysis", response_model=PatternAnalysisOut)
-async def get_pattern_analysis(
-    db: DbSession, persona_id: PersonaId, scan_id: Annotated[UUID, Query()]
-) -> PatternAnalysisOut:
-    scan = await db.get(SkinScan, scan_id)
-    if scan is None or scan.persona_id != persona_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="스캔을 찾을 수 없습니다."
-        )
-    if scan.status != "completed":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="scan_not_completed: 완료된 스캔에서만 패턴 분석을 제공합니다.",
-        )
-    content = await build_pattern_analysis(db, scan)
-    return PatternAnalysisOut(scan_id=str(scan.id), **content)
 
 
 @router.post("/sos/sessions", response_model=SosSessionOut, status_code=status.HTTP_201_CREATED)
