@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persona import get_persona_id
@@ -10,6 +10,8 @@ from app.modules.reports import schemas, service
 from app.modules.reports.pattern import analyze_pattern
 
 router = APIRouter(tags=["reports"])
+
+ALLOWED_PERIOD_DAYS = (14, 30)
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 PersonaDep = Annotated[str, Depends(get_persona_id)]
@@ -31,12 +33,23 @@ async def create_report(
     persona_id: PersonaDep,
     payload: schemas.ReportRequest,
 ) -> schemas.ReportAccepted:
-    report = await service.create_report(db, persona_id, payload.period_days)
+    if payload.period_days not in ALLOWED_PERIOD_DAYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "invalid_report_period"},
+        )
+    report = await service.create_report(
+        db, persona_id, payload.period_days, end_date=payload.end_date
+    )
     return schemas.ReportAccepted(
         report_id=report.id,
         status=report.status,
         status_url=f"/api/v1/reports/{report.id}",
     )
+
+
+def _evidence(items: list[dict]) -> list[schemas.ReportEvidence]:
+    return [schemas.ReportEvidence(**item) for item in items]
 
 
 @router.get("/reports/{report_id}", response_model=schemas.ReportResult)
@@ -56,10 +69,10 @@ async def get_report(
             period_days=report.period_days,
         ),
         summary=result.get("summary", ""),
-        observations=result.get("observations", []),
-        patterns=result.get("patterns", []),
-        recommendations=result.get("recommendations", []),
-        limitations=result.get("limitations", []),
+        observations=_evidence(result.get("observations", [])),
+        patterns=_evidence(result.get("patterns", [])),
+        recommendations=_evidence(result.get("recommendations", [])),
+        limitations=result.get("limitations", ""),
         safety_status=report.safety_status or "unknown",
         generated_at=report.generated_at,
     )

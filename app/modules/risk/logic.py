@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime, time, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.metrics import DailyMetric
@@ -216,18 +216,6 @@ async def load_today_risk_context(
         "health_consented": health_consented,
         "baseline_established": baseline_established,
     }
-
-
-async def count_observation_days(db: AsyncSession, persona_id: str, window_days: int) -> int:
-    cutoff = datetime.now(UTC) - timedelta(days=window_days)
-    result = await db.execute(
-        select(func.count(func.distinct(func.date(SkinScan.captured_at)))).where(
-            SkinScan.persona_id == persona_id,
-            SkinScan.status == "completed",
-            SkinScan.captured_at >= cutoff,
-        )
-    )
-    return result.scalar_one() or 0
 
 
 async def build_report_content(

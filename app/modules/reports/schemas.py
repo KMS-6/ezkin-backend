@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.modules.triggers.schemas import ObservedPattern, PatternWindow, RawFact
+
 # --- Eligibility ---
 
 
@@ -17,7 +19,9 @@ class EligibilityResponse(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    period_days: int = Field(default=14, ge=14)  # 14 or 30
+    period_days: int = Field(default=14, ge=1)
+    end_date: date | None = None
+    locale: str = "ko-KR"
 
 
 class ReportPeriod(BaseModel):
@@ -32,15 +36,20 @@ class ReportAccepted(BaseModel):
     status_url: str
 
 
+class ReportEvidence(BaseModel):
+    text: str
+    evidence_ids: list[str]
+
+
 class ReportResult(BaseModel):
     report_id: UUID
     status: str
     period: ReportPeriod
     summary: str
-    observations: list[str]
-    patterns: list[str]
-    recommendations: list[str]
-    limitations: list[str]
+    observations: list[ReportEvidence]
+    patterns: list[ReportEvidence]
+    recommendations: list[ReportEvidence]
+    limitations: str
     safety_status: str
     generated_at: datetime | None = None
 
@@ -50,8 +59,8 @@ class ReportResult(BaseModel):
 
 class PatternAnalysisOut(BaseModel):
     scan_id: UUID
-    window: str
-    raw_facts: list[str]
-    observed_pattern: str | None
-    common_knowledge: None
+    window: PatternWindow
+    raw_facts: list[RawFact]
+    observed_pattern: ObservedPattern | None
+    common_knowledge: dict | None
     disclaimer: str
