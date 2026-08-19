@@ -12,6 +12,17 @@ from app.models.knowledge import KnowledgeChunk, KnowledgeDocument, KnowledgeInd
 from app.modules.knowledge.schemas import KnowledgeChunkResult
 
 
+async def active_claim_ids(db: AsyncSession) -> set[str]:
+    """활성 인덱스(is_active=True)들이 함께 참조하는 claim_id 전체."""
+    idx_result = await db.execute(
+        select(KnowledgeIndex).where(KnowledgeIndex.is_active == True)  # noqa: E712
+    )
+    allowed: set[str] = set()
+    for idx in idx_result.scalars():
+        allowed.update(idx.claim_ids or [])
+    return allowed
+
+
 async def keyword_search(
     db: AsyncSession,
     keywords: list[str],
@@ -20,18 +31,7 @@ async def keyword_search(
     if not keywords:
         return []
 
-    # 활성 인덱스에서 claim_id 목록 수집
-    idx_result = await db.execute(
-        select(KnowledgeIndex).where(KnowledgeIndex.is_active == True)  # noqa: E712
-    )
-    active_indexes = idx_result.scalars().all()
-    if not active_indexes:
-        return []
-
-    allowed_claim_ids: set[str] = set()
-    for idx in active_indexes:
-        allowed_claim_ids.update(idx.claim_ids or [])
-
+    allowed_claim_ids = await active_claim_ids(db)
     if not allowed_claim_ids:
         return []
 
