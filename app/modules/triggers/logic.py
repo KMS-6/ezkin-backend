@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.metrics import DailyMetric
+from app.models.persona import Persona
 from app.models.scan import SkinScan
 from app.models.sos import SosMessage
+from app.modules.knowledge.matching import find_claim
 from app.modules.risk.logic import load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
 from app.modules.triggers.llm_escalation import escalate_parse
@@ -149,10 +151,12 @@ def is_medication_question(message: str) -> bool:
     return "약" in normalized and any(stem in normalized for stem in MEDICATION_ACTION_STEMS)
 
 
-def _faq_score(normalized_query: str, entry: dict) -> float:
+def _faq_score(normalized_query: str, entry: dict, primary_concern: str | None = None) -> float:
     """키워드가 겹치는 정도로 점수를 매긴다: 매칭된 키워드 중 가장 긴 것일수록(더
     구체적인 문구일수록), 매칭된 키워드가 여러 개일수록(여러 신호가 겹칠수록) 점수가
-    높아진다."""
+    높아진다. 페르소나의 primary_concern이 FAQ의 related_concerns와 일치하면 소폭
+    가점한다 — 안전 판정(FAQ_HIGH_CONFIDENCE 등)에는 영향 없이 랭킹만 보정한다.
+    """
     matched = [nk for k in entry["keywords"] if (nk := _normalize(k)) and nk in normalized_query]
     if not matched:
         return 0.0
@@ -161,20 +165,32 @@ def _faq_score(normalized_query: str, entry: dict) -> float:
     if longest >= 3:
         score += 0.1
     score += min((len(matched) - 1) * 0.05, 0.15)
+    if primary_concern and primary_concern in entry.get("related_concerns", []):
+        score += 0.05
     return round(min(score, 1.0), 2)
 
 
-def search_faq(message: str, candidates: list[dict] | None = None) -> list[tuple[float, dict]]:
+def search_faq(
+    message: str,
+    candidates: list[dict] | None = None,
+    primary_concern: str | None = None,
+) -> list[tuple[float, dict]]:
     """후보 FAQ를 점수 순으로 정렬해 반환한다(점수 0 초과만). `candidates`를 생략하면
     전체 FAQ_ENTRIES에서 찾는다."""
     normalized = _normalize(message)
     pool = candidates if candidates is not None else FAQ_ENTRIES
-    scored = [(score, entry) for entry in pool if (score := _faq_score(normalized, entry)) > 0]
+    scored = [
+        (score, entry)
+        for entry in pool
+        if (score := _faq_score(normalized, entry, primary_concern)) > 0
+    ]
     scored.sort(key=lambda pair: pair[0], reverse=True)
     return scored
 
 
-def resolve_faq(message: str, intent: str | None = None) -> dict:
+def resolve_faq(
+    message: str, intent: str | None = None, primary_concern: str | None = None
+) -> dict:
     """8.2절 검색 순서 2·4~6단계: intent로 후보를 먼저 좁힌 뒤 점수를 합산해 1위를
     고르되, 기준 미달이거나 1·2위가 모호하면 임의로 답변하지 않는다(CB-03, CB-04).
 
@@ -189,9 +205,9 @@ def resolve_faq(message: str, intent: str | None = None) -> dict:
     if intent and intent != "unknown":
         narrowed = [entry for entry in FAQ_ENTRIES if entry.get("intent") == intent]
 
-    ranked = search_faq(message, narrowed) if narrowed else []
+    ranked = search_faq(message, narrowed, primary_concern) if narrowed else []
     if not ranked:
-        ranked = search_faq(message)
+        ranked = search_faq(message, primary_concern=primary_concern)
     if not ranked:
         return {"selected": None, "score": 0.0, "candidates": []}
 
@@ -325,13 +341,39 @@ async def build_pattern_analysis(db: AsyncSession, scan: SkinScan) -> dict:
             "match_count": match_count,
         }
 
+    common_knowledge = await _select_pattern_common_knowledge(db, short_sleep_days, irritating_days)
+
     return {
         "window": {"start": window_start, "end": window_end},
         "raw_facts": raw_facts,
         "observed_pattern": observed_pattern,
-        "common_knowledge": None,
+        "common_knowledge": common_knowledge,
         "disclaimer": "통계적 상관관계는 의료 진단이 아닌 예방적 참고용 관찰입니다.",
     }
+
+
+async def _select_pattern_common_knowledge(
+    db: AsyncSession,
+    short_sleep_days: list[DailyMetric],
+    irritating_days: list[DailyMetric],
+) -> dict | None:
+    """raw_facts에 실제로 나타난 조건 중 하나에 대해서만 승인된 공통 지식 근거를
+    찾는다(briefings/logic.py::select_common_knowledge와 동일한 가중치: sleep > diet).
+    diet는 아직 대응하는 Claim Card가 없어(RAG 문서에 예시가 없음) 항상 None이다.
+    """
+    if short_sleep_days:
+        topic = "sleep"
+        facts = {"sleep_hours_available", "sleep_below_personal_baseline_or_threshold"}
+    elif irritating_days:
+        topic = "diet"
+        facts = {"irritating_diet_flag_present"}
+    else:
+        return None
+
+    claim = await find_claim(db, feature="report", topic=topic, facts=facts)
+    if claim is None:
+        return None
+    return {"claim_id": claim.claim_id, "version": claim.version, "sentence": claim.sentence}
 
 
 async def _load_today_risk(db: AsyncSession, persona_id: str) -> tuple[str, list[str]]:
@@ -347,6 +389,26 @@ async def _load_owned_cosmetics(db: AsyncSession, persona_id: str) -> list[Perso
         )
     )
     return list(result.scalars())
+
+
+def _persona_context_text(persona: Persona | None) -> str | None:
+    """LLM escalation 프롬프트에 참고용으로만 덧붙일 페르소나 요약 — intent/entity
+    분류 자체는 여전히 nlu.INTENTS·별칭 사전으로만 검증하므로(llm_escalation.py
+    validate_llm_result) 이 텍스트가 파싱 결과의 허용 범위를 넓히지는 않는다.
+    """
+    if persona is None:
+        return None
+    traits = persona.summary_traits or {}
+    skin_type = traits.get("skin_type")
+    primary_concern = traits.get("primary_concern")
+    if not skin_type and not primary_concern:
+        return None
+    parts = []
+    if skin_type:
+        parts.append(f"피부타입: {skin_type}")
+    if primary_concern:
+        parts.append(f"주요 고민 코드: {primary_concern}")
+    return ", ".join(parts)
 
 
 async def _escalations_today(db: AsyncSession, persona_id: str) -> int:
@@ -442,6 +504,8 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
         }
 
     owned = await _load_owned_cosmetics(db, persona_id)
+    persona = await db.get(Persona, persona_id)
+    primary_concern = (persona.summary_traits or {}).get("primary_concern") if persona else None
     parsed = parse_message(message)
     # 10.2절 4단계: parse_confidence가 낮을 때만 저비용 LLM으로 보정한다. 키 미설정·
     # 호출 실패·일일 상한 초과 시 규칙 기반 결과를 그대로 쓴다.
@@ -449,7 +513,9 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
     if parsed.parse_confidence < FAQ_LOW_CONFIDENCE:
         cap = settings.chat_llm_daily_cap_per_persona
         if cap > 0 and await _escalations_today(db, persona_id) < cap:
-            escalated = await escalate_parse(message)
+            escalated = await escalate_parse(
+                message, persona_context=_persona_context_text(persona)
+            )
             if escalated is not None:
                 parsed = escalated
                 llm_escalated = True
@@ -662,17 +728,21 @@ async def build_chat_reply(db: AsyncSession, persona_id: str, message: str) -> d
             llm_escalated=llm_escalated,
         )
 
-    resolved = resolve_faq(message, parsed.intent)
+    resolved = resolve_faq(message, parsed.intent, primary_concern)
     faq = resolved["selected"]
     if faq is not None:
         alternative = _owns_ingredient(owned, SOOTHING_ALIASES)
         reply = faq["reply"]
         referenced: list[str] = []
         used_contexts: list[str] = []
+        persona_notes = (persona.summary_traits or {}).get("notes") if persona else None
+        if persona_notes and primary_concern in faq.get("related_concerns", []):
+            reply = f"{reply} {persona_notes}"
+            used_contexts.append("persona_profile")
         if alternative is not None:
             reply = f"{reply} 등록된 {_product_label(alternative)}를 활용해 보세요."
             referenced = [str(alternative.id)]
-            used_contexts = ["owned_products"]
+            used_contexts.append("owned_products")
         return _answer(
             reply,
             faq_id=faq["faq_id"],

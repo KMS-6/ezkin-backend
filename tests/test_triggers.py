@@ -1,10 +1,14 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.metrics import DailyMetric
+from app.models.persona import Persona
 from tests.conftest import PARTNER_HEADERS, TEST_PERSONA_ID
+from tests.test_briefing_common_knowledge import SLEEP_SENTENCE, _seed_claim
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -71,6 +75,55 @@ async def test_pattern_analysis_for_completed_scan(
     assert body["observed_pattern"] is None
 
 
+async def test_pattern_analysis_includes_common_knowledge_when_sleep_claim_matches(
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    """Report(pattern-analysis)도 Briefing과 동일한 공통 지식 RAG(find_claim,
+    feature="report")로 연동돼야 한다."""
+    captured_at = datetime(2026, 8, 16, 9, 0, tzinfo=UTC)
+    db_session.add(
+        DailyMetric(
+            persona_id=TEST_PERSONA_ID,
+            metric_date=(captured_at - timedelta(hours=24)).date(),
+            sleep_hours=4.0,
+        )
+    )
+    await db_session.commit()
+    await _seed_claim(
+        db_session,
+        claim_id="claim_sleep_barrier_001",
+        topic="sleep",
+        required_user_facts=[
+            "sleep_hours_available",
+            "sleep_below_personal_baseline_or_threshold",
+        ],
+        sentence=SLEEP_SENTENCE,
+    )
+
+    scan = await client.post(
+        "/api/v1/skin-scans",
+        headers={**persona_headers, "Idempotency-Key": "idem-q-pattern-rag"},
+        data={
+            "capture_method": "questionnaire",
+            "captured_at": captured_at.isoformat(),
+            "questionnaire_version": "v1",
+            "answers": QUESTIONNAIRE_ANSWERS,
+        },
+    )
+    scan_id = scan.json()["scan_id"]
+
+    response = await client.get(
+        "/api/v1/pattern-analysis", headers=persona_headers, params={"scan_id": scan_id}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["common_knowledge"] == {
+        "claim_id": "claim_sleep_barrier_001",
+        "version": 1,
+        "sentence": SLEEP_SENTENCE,
+    }
+
+
 async def test_sos_urgent_message_returns_safety_reply(
     client: AsyncClient, persona_headers: dict[str, str]
 ) -> None:
@@ -111,6 +164,34 @@ async def test_sos_faq_match_and_unmatched_message(
     assert unmatched.status_code == 200
     assert unmatched.json()["reply_type"] == "clarification"
     assert unmatched.json()["matched_faq"] is None
+
+
+async def test_sos_faq_reply_personalizes_using_persona_primary_concern(
+    client: AsyncClient, persona_headers: dict[str, str], db_session: AsyncSession
+) -> None:
+    """persona.summary_traits(primary_concern·notes)가 FAQ 랭킹 가점과 답변
+    개인화에 실제로 반영되는지 검증한다."""
+    persona = await db_session.get(Persona, TEST_PERSONA_ID)
+    persona.summary_traits = {
+        "skin_type": "건성",
+        "primary_concern": "cn_dryness",
+        "notes": "환절기에 당김과 붉은기가 심해지는 편이에요.",
+    }
+    await db_session.commit()
+
+    session = await client.post("/api/v1/sos/sessions", headers=persona_headers)
+    session_id = session.json()["session_id"]
+
+    response = await client.post(
+        f"/api/v1/sos/sessions/{session_id}/messages",
+        headers=persona_headers,
+        json={"message": "요즘 피부가 건조하고 당겨요"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["matched_faq"]["faq_id"] == "faq_dryness"
+    assert "환절기에 당김과 붉은기가 심해지는 편이에요." in body["reply"]
+    assert "persona_profile" in body["used_contexts"]
 
 
 async def test_sos_self_harm_message_returns_crisis_reply(
