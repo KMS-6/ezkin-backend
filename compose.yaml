@@ -20,6 +20,7 @@ services:
   migrate:
     build: .
     environment:
+      AAC_APP_ENV: production
       AAC_DATABASE_URL: postgresql+asyncpg://aac:aac@db:5432/aac
     command: ["uv", "run", "alembic", "upgrade", "head"]
     depends_on:
@@ -29,6 +30,7 @@ services:
   api:
     build: .
     environment:
+      AAC_APP_ENV: production
       AAC_DATABASE_URL: postgresql+asyncpg://aac:aac@db:5432/aac
     ports:
       - "8000:8000"

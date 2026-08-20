@@ -224,3 +224,6 @@ __marimo__/
 
 # Local Git worktrees
 /.worktrees/
+
+# Claude Code planning documents (auto-generated, not for review)
+docs/superpowers/

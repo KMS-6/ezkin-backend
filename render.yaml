@@ -10,6 +10,8 @@ services:
     healthCheckPath: /health
     autoDeployTrigger: checksPass
     envVars:
+      - key: AAC_APP_ENV
+        value: production
       - key: AAC_DATABASE_URL
         fromDatabase:
           name: ezkin-db
