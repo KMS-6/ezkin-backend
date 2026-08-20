@@ -52,6 +52,9 @@ async def run_async_migrations() -> None:
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
+        # advisory lock 쿼리가 암묵적 트랜잭션을 먼저 열어버려서, 명시적으로 커밋하지
+        # 않으면 connection 종료 시 마이그레이션 전체가 롤백된다.
+        await connection.commit()
     await connectable.dispose()
 
 
