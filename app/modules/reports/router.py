@@ -73,6 +73,9 @@ async def get_report(
         patterns=_evidence(result.get("patterns", [])),
         recommendations=_evidence(result.get("recommendations", [])),
         limitations=result.get("limitations", ""),
+        common_knowledge=[
+            schemas.ReportClaim(**claim) for claim in result.get("common_knowledge", [])
+        ],
         safety_status=report.safety_status or "unknown",
         generated_at=report.generated_at,
     )

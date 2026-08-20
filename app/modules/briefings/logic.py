@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.briefing import Briefing
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.generation import Generation
+from app.modules.briefings.narration import narrate_briefing
 from app.modules.cosmetics_catalog.matching import load_ingredient_catalog, match_ingredient_risks
 from app.modules.knowledge.matching import find_claim
 from app.modules.risk.logic import (
@@ -190,11 +191,13 @@ async def get_or_generate_briefing(db: AsyncSession, persona_id: str) -> Briefin
     else:
         shelf_notice = None
 
-    summary = (
+    base_summary = (
         ", ".join(text for _, text in factors)
         if factors
         else "특별한 위험 요인이 관찰되지 않았어요."
     )
+    narrated_summary = await narrate_briefing(factors, common_knowledge)
+    summary = narrated_summary or base_summary
     if shelf_notice:
         summary = f"{summary} {shelf_notice}"
 
