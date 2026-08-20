@@ -37,6 +37,10 @@ def do_run_migrations(connection: Connection) -> None:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()
+        # NOTE: pg_advisory_lock 실행이 SQLAlchemy 2.0 autobegin 트랜잭션을 먼저 열어버려서
+        # context.begin_transaction()이 이를 "이미 열린 트랜잭션"으로 보고 커밋을 위임만 하고
+        # 직접 커밋하지 않는다. 명시적으로 커밋하지 않으면 연결 종료 시 전체가 롤백된다.
+        connection.commit()
     finally:
         if uses_postgresql:
             connection.execute(
