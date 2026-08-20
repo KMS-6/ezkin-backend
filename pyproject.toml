@@ -16,11 +16,11 @@ dependencies = [
     "uvicorn[standard]>=0.35,<1",
     "tzdata>=2025.1",
     "openai>=3,<4",
+    "httpx>=0.28,<1",
 ]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28,<1",
     "pytest>=8.4,<9",
     "pytest-asyncio>=1.1,<2",
     "ruff>=0.12,<1",
