@@ -14,7 +14,12 @@ from app.core.config import settings
 from app.models.onboarding import OnboardingProfile
 from app.models.weather import WeatherSnapshot
 from app.modules.weather.client import fetch_current_weather
-from app.modules.weather.grid import SEOUL_LATITUDE, SEOUL_LONGITUDE, latlon_to_grid
+from app.modules.weather.grid import (
+    SEOUL_LATITUDE,
+    SEOUL_LONGITUDE,
+    latlon_to_grid,
+    nearest_sido_area_code,
+)
 
 WEATHER_SOURCE_API = "kma_api"
 
@@ -37,11 +42,11 @@ async def _load_latest_snapshot(db: AsyncSession, persona_id: str) -> WeatherSna
     return result.scalar_one_or_none()
 
 
-async def _resolve_grid(db: AsyncSession, persona_id: str) -> tuple[int, int]:
+async def _resolve_location(db: AsyncSession, persona_id: str) -> tuple[float, float]:
     profile = await db.get(OnboardingProfile, persona_id)
     if profile is not None and profile.latitude is not None and profile.longitude is not None:
-        return latlon_to_grid(profile.latitude, profile.longitude)
-    return latlon_to_grid(SEOUL_LATITUDE, SEOUL_LONGITUDE)
+        return profile.latitude, profile.longitude
+    return SEOUL_LATITUDE, SEOUL_LONGITUDE
 
 
 async def get_or_fetch_weather(
@@ -59,8 +64,10 @@ async def get_or_fetch_weather(
     if latest is not None and (_as_naive_utc(now) - _as_naive_utc(latest.observed_at)) < ttl:
         return latest
 
-    nx, ny = await _resolve_grid(db, persona_id)
-    result = await fetch_current_weather(nx, ny)
+    lat, lon = await _resolve_location(db, persona_id)
+    nx, ny = latlon_to_grid(lat, lon)
+    area_code = nearest_sido_area_code(lat, lon)
+    result = await fetch_current_weather(nx, ny, area_code)
     if result is None:
         return latest
 

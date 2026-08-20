@@ -29,7 +29,7 @@ async def test_uses_cached_snapshot_within_ttl(
     )
     await db_session.commit()
 
-    async def _should_not_be_called(nx: int, ny: int):
+    async def _should_not_be_called(nx: int, ny: int, area_code: str):
         raise AssertionError("TTL 이내에는 API를 다시 호출하면 안 된다")
 
     monkeypatch.setattr(weather_service, "fetch_current_weather", _should_not_be_called)
@@ -57,7 +57,7 @@ async def test_refetches_after_ttl_expires(
 
     called_with = {}
 
-    async def _fake_fetch(nx: int, ny: int):
+    async def _fake_fetch(nx: int, ny: int, area_code: str):
         called_with["nx"] = nx
         called_with["ny"] = ny
         return WeatherApiResult(
@@ -86,7 +86,7 @@ async def test_uses_persona_location_when_available(
 
     called_with = {}
 
-    async def _fake_fetch(nx: int, ny: int):
+    async def _fake_fetch(nx: int, ny: int, area_code: str):
         called_with["nx"] = nx
         called_with["ny"] = ny
         return WeatherApiResult(
@@ -115,7 +115,7 @@ async def test_falls_back_to_stale_cache_when_api_fails(
     )
     await db_session.commit()
 
-    async def _fake_fetch(nx: int, ny: int):
+    async def _fake_fetch(nx: int, ny: int, area_code: str):
         return None
 
     monkeypatch.setattr(weather_service, "fetch_current_weather", _fake_fetch)
@@ -131,7 +131,7 @@ async def test_returns_none_when_no_cache_and_api_fails(
 ) -> None:
     now = datetime.now(UTC)
 
-    async def _fake_fetch(nx: int, ny: int):
+    async def _fake_fetch(nx: int, ny: int, area_code: str):
         return None
 
     monkeypatch.setattr(weather_service, "fetch_current_weather", _fake_fetch)

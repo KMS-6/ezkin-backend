@@ -3,7 +3,12 @@
 외부 호출이 없는 순수 함수라 알려진 기상청 예제 좌표의 격자값과 직접 비교한다.
 """
 
-from app.modules.weather.grid import SEOUL_LATITUDE, SEOUL_LONGITUDE, latlon_to_grid
+from app.modules.weather.grid import (
+    SEOUL_LATITUDE,
+    SEOUL_LONGITUDE,
+    latlon_to_grid,
+    nearest_sido_area_code,
+)
 
 
 def test_known_kma_example_coordinate_maps_to_60_127() -> None:
@@ -17,3 +22,11 @@ def test_seoul_default_coordinate_maps_to_60_127() -> None:
 
 def test_busan_coordinate_maps_to_known_grid() -> None:
     assert latlon_to_grid(35.1796, 129.0756) == (98, 76)
+
+
+def test_seoul_coordinate_maps_to_seoul_area_code() -> None:
+    assert nearest_sido_area_code(SEOUL_LATITUDE, SEOUL_LONGITUDE) == "1100000000"
+
+
+def test_busan_coordinate_maps_to_busan_area_code() -> None:
+    assert nearest_sido_area_code(35.1796, 129.0756) == "2600000000"

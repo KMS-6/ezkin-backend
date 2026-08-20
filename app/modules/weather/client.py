@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
 _NCST_URL = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst"
-_UV_URL = "https://apis.data.go.kr/1360000/LivingWthrIdxServiceV4/getUVIdxV4"
+_UV_URL = "https://apis.data.go.kr/1360000/LivingWthrIdxServiceV5/getUVIdxV5"
 
 _REQUEST_TIMEOUT_SECONDS = 5.0
 
@@ -40,10 +40,11 @@ def _base_datetime_for_ncst(now: datetime) -> tuple[str, str]:
     return now.strftime("%Y%m%d"), now.strftime("%H00")
 
 
-async def fetch_current_weather(nx: int, ny: int) -> WeatherApiResult | None:
+async def fetch_current_weather(nx: int, ny: int, area_code: str) -> WeatherApiResult | None:
     """온도/습도(초단기실황) + UV지수(생활기상지수)를 조회한다.
 
-    API 키가 없거나 호출/파싱이 실패하면 None을 반환한다.
+    `area_code`는 생활기상지수 API가 요구하는 10자리 시/도 행정구역코드다(격자와
+    다른 좌표계, ADR 003 참고). API 키가 없거나 호출/파싱이 실패하면 None을 반환한다.
     """
     if settings.weather_api_key is None:
         return None
@@ -74,7 +75,7 @@ async def fetch_current_weather(nx: int, ny: int) -> WeatherApiResult | None:
                 params={
                     "serviceKey": service_key,
                     "dataType": "JSON",
-                    "areaNo": f"{nx}{ny}",
+                    "areaNo": area_code,
                     "time": now.strftime("%Y%m%d%H"),
                 },
             )

@@ -39,7 +39,7 @@ def _install_transport(monkeypatch: pytest.MonkeyPatch, handler) -> None:
 async def test_returns_none_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "weather_api_key", None)
 
-    result = await weather_client.fetch_current_weather(60, 127)
+    result = await weather_client.fetch_current_weather(60, 127, "1100000000")
 
     assert result is None
 
@@ -54,7 +54,7 @@ async def test_returns_parsed_weather_on_success(monkeypatch: pytest.MonkeyPatch
 
     _install_transport(monkeypatch, handler)
 
-    result = await weather_client.fetch_current_weather(60, 127)
+    result = await weather_client.fetch_current_weather(60, 127, "1100000000")
 
     assert result is not None
     assert result.temperature_c == 21.5
@@ -70,7 +70,7 @@ async def test_returns_none_on_http_error(monkeypatch: pytest.MonkeyPatch) -> No
 
     _install_transport(monkeypatch, handler)
 
-    result = await weather_client.fetch_current_weather(60, 127)
+    result = await weather_client.fetch_current_weather(60, 127, "1100000000")
 
     assert result is None
 
@@ -83,6 +83,6 @@ async def test_returns_none_on_malformed_response(monkeypatch: pytest.MonkeyPatc
 
     _install_transport(monkeypatch, handler)
 
-    result = await weather_client.fetch_current_weather(60, 127)
+    result = await weather_client.fetch_current_weather(60, 127, "1100000000")
 
     assert result is None
