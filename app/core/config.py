@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # 키가 없으면 기능이 조용히 꺼지고 규칙 기반 결과로만 동작한다(17절 가용성 원칙).
     anthropic_api_key: SecretStr | None = None
     chat_llm_model: str = "claude-haiku-4-5"
+    # Vision AI Input 5절: 카메라 스캔 관찰값 생성용 멀티모달 모델. 키가 없으면 이
+    # 기능은 조용히 꺼지고 기존 model_not_implemented 폴백으로 동작한다(17절 가용성
+    # 원칙). 챗봇 escalation(anthropic_api_key)과는 별도 provider/키를 쓴다.
+    openai_api_key: SecretStr | None = None
+    vision_llm_model: str = "gpt-4o-mini"
     # 페르소나당 하루 escalation 호출 상한 — 애매한 메시지가 몰려도 비용이 무한정
     # 늘어나지 않게 막는 안전장치. 초과하면 escalation 없이 규칙 기반 결과로 폴백한다.
     chat_llm_daily_cap_per_persona: int = Field(default=20, ge=0)
