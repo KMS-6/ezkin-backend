@@ -3,7 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.scan import SkinScan
@@ -45,7 +45,11 @@ async def analyze_pattern(
             SkinScan.id != scan_id,
             SkinScan.created_at >= window_start,
             SkinScan.created_at <= window_end,
-            SkinScan.scores.is_not(None),
+            or_(
+                SkinScan.redness_score.is_not(None),
+                SkinScan.dryness_score.is_not(None),
+                SkinScan.oiliness_score.is_not(None),
+            ),
         )
         .order_by(SkinScan.created_at)
     )

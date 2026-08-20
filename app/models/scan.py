@@ -15,7 +15,9 @@ class SkinScan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     capture_method: Mapped[str] = mapped_column(String(20))
     image_storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    image_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    image_deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     lighting_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -48,13 +50,25 @@ class SkinScan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     @property
     def scores(self) -> dict | None:
-        if self.redness_score is None and self.dryness_score is None and self.oiliness_score is None:
+        if (
+            self.redness_score is None
+            and self.dryness_score is None
+            and self.oiliness_score is None
+        ):
             return None
-        return {
+        values = {
             "redness": self.redness_score,
             "dryness": self.dryness_score,
             "oiliness": self.oiliness_score,
         }
+        return {key: value for key, value in values.items() if value is not None}
+
+    @scores.setter
+    def scores(self, value: dict | None) -> None:
+        value = value or {}
+        self.redness_score = value.get("redness", value.get("flushing"))
+        self.dryness_score = value.get("dryness", value.get("moisture"))
+        self.oiliness_score = value.get("oiliness")
 
     @property
     def confidence(self) -> dict | None:

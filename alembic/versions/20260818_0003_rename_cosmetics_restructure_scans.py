@@ -1,4 +1,4 @@
-"""cosmetics → user_cosmetics 테이블 rename, skin_scans 컬럼 ERD 정렬, skin_questionnaire_answers 신설.
+"""ERD에 맞춰 cosmetics와 skin_scans를 정렬하고 문진 답변 테이블을 신설한다.
 
 Revision ID: 20260818_0003
 Revises: 20260816_0002
@@ -31,10 +31,14 @@ def upgrade() -> None:
     op.alter_column("skin_scans", "image_key", new_column_name="image_storage_key")
 
     # 3. skin_scans: ERD 기준 누락 컬럼 추가
-    op.add_column("skin_scans", sa.Column("image_deleted_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column(
+        "skin_scans", sa.Column("image_deleted_at", sa.DateTime(timezone=True), nullable=True)
+    )
     op.add_column("skin_scans", sa.Column("lighting_ok", sa.Boolean(), nullable=True))
     op.add_column("skin_scans", sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("skin_scans", sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True))
+    op.add_column(
+        "skin_scans", sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True)
+    )
 
     op.add_column("skin_scans", sa.Column("redness_score", sa.Float(), nullable=True))
     op.add_column("skin_scans", sa.Column("dryness_score", sa.Float(), nullable=True))
@@ -77,7 +81,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_skin_questionnaire_answers_scan_id"), table_name="skin_questionnaire_answers")
+    op.drop_index(
+        op.f("ix_skin_questionnaire_answers_scan_id"), table_name="skin_questionnaire_answers"
+    )
     op.drop_table("skin_questionnaire_answers")
 
     op.drop_column("skin_scans", "quality")

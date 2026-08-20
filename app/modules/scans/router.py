@@ -76,10 +76,16 @@ def _parse_answers(raw: str) -> list[dict]:
     return parsed
 
 
-async def _latest_completed_scan(db: AsyncSession, persona_id: str) -> SkinScan | None:
+async def _latest_completed_scan(
+    db: AsyncSession, persona_id: str, exclude_scan_id: UUID
+) -> SkinScan | None:
     result = await db.execute(
         select(SkinScan)
-        .where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
+        .where(
+            SkinScan.persona_id == persona_id,
+            SkinScan.status == "completed",
+            SkinScan.id != exclude_scan_id,
+        )
         .order_by(SkinScan.captured_at.desc())
         .limit(1)
     )
@@ -87,11 +93,18 @@ async def _latest_completed_scan(db: AsyncSession, persona_id: str) -> SkinScan 
 
 
 async def _recent_completed_scores(
-    db: AsyncSession, persona_id: str, limit: int = BASELINE_WINDOW
+    db: AsyncSession,
+    persona_id: str,
+    exclude_scan_id: UUID,
+    limit: int = BASELINE_WINDOW,
 ) -> list[dict[str, float]]:
     result = await db.execute(
         select(SkinScan)
-        .where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
+        .where(
+            SkinScan.persona_id == persona_id,
+            SkinScan.status == "completed",
+            SkinScan.id != exclude_scan_id,
+        )
         .order_by(SkinScan.captured_at.desc())
         .limit(limit)
     )
@@ -251,13 +264,15 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
     delta_vs_previous: dict[str, float] | None = None
     delta_vs_baseline: dict[str, float] | None = None
     if scan.status == "completed" and scan.scores:
-        previous = await _latest_completed_scan(db, persona_id)
-        if previous and previous.id != scan.id and previous.scores:
+        previous = await _latest_completed_scan(db, persona_id, scan.id)
+        if previous and previous.scores:
             delta_vs_previous = {
-                metric: round(scan.scores[metric] - previous.scores.get(metric, scan.scores[metric]), 2)
+                metric: round(
+                    scan.scores[metric] - previous.scores.get(metric, scan.scores[metric]), 2
+                )
                 for metric in scan.scores
             }
-        baseline_history = await _recent_completed_scores(db, persona_id)
+        baseline_history = await _recent_completed_scores(db, persona_id, scan.id)
         delta_vs_baseline = _compute_delta_vs_baseline(scan.scores, baseline_history)
 
     return SkinScanResult(
