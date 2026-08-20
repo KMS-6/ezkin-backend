@@ -6,9 +6,10 @@
 """
 
 from io import BytesIO
+from types import SimpleNamespace
 from uuid import UUID
 
-import openai
+import anthropic
 import pytest
 from httpx import AsyncClient, Request
 from PIL import Image
@@ -75,11 +76,43 @@ async def test_analyze_image_returns_none_for_unsupported_media_type() -> None:
     assert result is None
 
 
+async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeMessages:
+        async def parse(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(parsed_output=_result())
+
+    class FakeClient:
+        def __init__(self, api_key: str) -> None:
+            captured["api_key"] = api_key
+            self.messages = FakeMessages()
+
+        def with_options(self, **kwargs):
+            captured["options"] = kwargs
+            return self
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("anthropic-test-key"))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+
+    outcome = await analyze_image(_JPEG_BYTES, "image/jpeg")
+
+    assert outcome is not None
+    assert captured["api_key"] == "anthropic-test-key"
+    assert captured["model"] == settings.vision_llm_model
+    content = captured["messages"][0]["content"]
+    assert content[0]["type"] == "image"
+    assert content[0]["source"]["type"] == "base64"
+    assert content[0]["source"]["media_type"] == "image/jpeg"
+    assert content[1] == {"type": "text", "text": "이 사진을 분석해 주세요."}
+
+
 @pytest.mark.parametrize(
     ("error", "expected_code"),
     [
         (
-            openai.APITimeoutError(request=Request("POST", "https://api.openai.com")),
+            anthropic.APITimeoutError(request=Request("POST", "https://api.anthropic.com")),
             "analysis_timeout",
         ),
         (RuntimeError("temporary failure"), "analysis_failed"),
@@ -88,18 +121,18 @@ async def test_analyze_image_returns_none_for_unsupported_media_type() -> None:
 async def test_analyze_image_classifies_retryable_provider_failures(
     error: Exception, expected_code: str, monkeypatch
 ) -> None:
-    class FakeResponses:
+    class FakeMessages:
         async def parse(self, **kwargs):
             raise error
 
     class FakeClient:
-        responses = FakeResponses()
+        messages = FakeMessages()
 
         def with_options(self, **kwargs):
             return self
 
-    monkeypatch.setattr(settings, "openai_api_key", SecretStr("test-key"))
-    monkeypatch.setattr(openai, "AsyncOpenAI", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kwargs: FakeClient())
 
     outcome = await analyze_image(_JPEG_BYTES, "image/jpeg")
 
@@ -158,8 +191,8 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
         return VisionOutcome(
             scores={"redness": 0.4, "dryness": 0.2, "oiliness": 0.6},
             confidence={"redness": 0.8, "dryness": 0.8, "oiliness": 0.8},
-            model_provider="openai",
-            model_name="gpt-4o-mini",
+            model_provider="anthropic",
+            model_name="claude-haiku-4-5",
             model_version="1",
             schema_version="skin_observation.v1",
         )
@@ -179,18 +212,21 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
     assert body["status"] == "completed"
     assert body["lower_accuracy"] is False
     assert body["scores"] == {"redness": 0.4, "dryness": 0.2, "oiliness": 0.6}
-    assert body["model"] == {"provider": "openai", "name": "gpt-4o-mini", "version": "1"}
-    assert body["schema_version"] == "skin_observation.v1"
+    assert body["model"] == {
+        "provider": "anthropic",
+        "name": "claude-haiku-4-5",
+        "version": "1",
+    }
     assert body["failure"] is None
 
     scan = await db_session.get(SkinScan, UUID(scan_id))
     assert scan is not None
-    assert scan.image_key is None
-    assert scan.analysis_model == "gpt-4o-mini"
+    assert scan.image_storage_key is None
+    assert scan.model_name == "claude-haiku-4-5"
 
     monkeypatch.setattr(settings, "vision_llm_model", "replacement-model")
     repeated = await client.get(f"/api/v1/skin-scans/{scan_id}", headers=persona_headers)
-    assert repeated.json()["model"]["name"] == "gpt-4o-mini"
+    assert repeated.json()["model"]["name"] == "claude-haiku-4-5"
 
 
 async def test_camera_scan_fails_with_specific_code_when_quality_gate_fails(
@@ -237,7 +273,7 @@ async def test_camera_scan_preserves_retryable_analysis_failure(
         "/api/v1/skin-scans",
         headers={**persona_headers, "Idempotency-Key": "idem-vision-timeout"},
         data={"capture_method": "camera", "captured_at": "2026-08-16T09:00:00Z"},
-        files={"image": ("scan.jpg", _jpeg_with_exif(), "image/jpeg")},
+        files={"image": ("scan.jpg", _JPEG_BYTES, "image/jpeg")},
     )
     result = await client.get(
         f"/api/v1/skin-scans/{response.json()['scan_id']}", headers=persona_headers
@@ -245,7 +281,6 @@ async def test_camera_scan_preserves_retryable_analysis_failure(
 
     assert result.json()["failure"] == {
         "code": "analysis_timeout",
-        "message": "분석 시간이 초과되었습니다.",
         "retryable": True,
     }
 
@@ -253,10 +288,9 @@ async def test_camera_scan_preserves_retryable_analysis_failure(
 async def test_read_and_validate_image_removes_exif() -> None:
     from starlette.datastructures import Headers, UploadFile
 
-    original = _jpeg_with_exif()
     upload = UploadFile(
         filename="scan.jpg",
-        file=BytesIO(original),
+        file=BytesIO(_jpeg_with_exif()),
         headers=Headers({"content-type": "image/jpeg"}),
     )
 

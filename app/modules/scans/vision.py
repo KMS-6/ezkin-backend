@@ -16,7 +16,7 @@ from app.core.config import settings
 
 ANALYSIS_TIMEOUT_SECONDS = 20.0
 ANALYSIS_MAX_TOKENS = 500
-VISION_PROVIDER = "openai"
+VISION_PROVIDER = "anthropic"
 VISION_MODEL_VERSION = "1"
 VISION_SCHEMA_VERSION = "skin_observation.v1"
 
@@ -25,7 +25,7 @@ VISION_SCHEMA_VERSION = "skin_observation.v1"
 # scans/router.py)와 같은 값을 잠정 기준으로 쓴다.
 CONFIDENCE_THRESHOLD = 0.5
 
-# OpenAI Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
+# Claude Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
 # 이 경로에서는 분석 불가로 취급해 model_not_implemented로 폴백시킨다.
 _SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png"}
 
@@ -135,35 +135,42 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
     분석 자체를 시도할 수 없으면(키 없음·SDK 없음·미지원 형식) None을 반환한다.
     모델 타임아웃과 일시적 호출 실패는 재시도 가능한 실패 결과로 반환한다.
     """
-    api_key = settings.openai_api_key
+    api_key = settings.anthropic_api_key
     if api_key is None or media_type not in _SUPPORTED_MEDIA_TYPES:
         return None
 
     try:
-        import openai
+        import anthropic
     except ImportError:
         return None
 
-    data_url = f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    encoded_image = base64.b64encode(image_bytes).decode("ascii")
 
     try:
-        client = openai.AsyncOpenAI(api_key=api_key.get_secret_value())
-        response = await client.with_options(timeout=ANALYSIS_TIMEOUT_SECONDS).responses.parse(
+        client = anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
+        response = await client.with_options(timeout=ANALYSIS_TIMEOUT_SECONDS).messages.parse(
             model=settings.vision_llm_model,
-            max_output_tokens=ANALYSIS_MAX_TOKENS,
-            instructions=_SYSTEM_PROMPT,
-            input=[
+            max_tokens=ANALYSIS_MAX_TOKENS,
+            system=_SYSTEM_PROMPT,
+            messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": "이 사진을 분석해 주세요."},
-                        {"type": "input_image", "image_url": data_url, "detail": "auto"},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": encoded_image,
+                            },
+                        },
+                        {"type": "text", "text": "이 사진을 분석해 주세요."},
                     ],
                 }
             ],
-            text_format=VisionAnalysisResult,
+            output_format=VisionAnalysisResult,
         )
-    except openai.APITimeoutError:
+    except anthropic.APITimeoutError:
         return VisionOutcome(
             failure_code="analysis_timeout",
             failure_message="분석 시간이 초과되었습니다.",
@@ -176,7 +183,7 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
             failure_retryable=True,
         )
 
-    result = response.output_parsed
+    result = response.parsed_output
     if result is None:
         return VisionOutcome(
             failure_code="analysis_failed",
