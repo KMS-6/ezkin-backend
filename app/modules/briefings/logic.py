@@ -10,7 +10,12 @@ from app.models.briefing import Briefing
 from app.models.cosmetic_catalog import PersonaCosmetic
 from app.models.generation import Generation
 from app.modules.cosmetics_catalog.matching import load_ingredient_catalog, match_ingredient_risks
-from app.modules.risk.logic import load_today_risk_context
+from app.modules.knowledge.matching import find_claim
+from app.modules.risk.logic import (
+    LOW_HUMIDITY_THRESHOLD,
+    SLEEP_LOW_THRESHOLD_HOURS,
+    load_today_risk_context,
+)
 
 KST = ZoneInfo("Asia/Seoul")
 NO_COSMETICS_NOTICE = (
@@ -38,6 +43,58 @@ ROUTINE_NOTES: dict[str, dict[bool, str | None]] = {
     "sunscreen": {True: None, False: None},
     "mask": {True: "자극 가능성이 있어 짧게 사용해 주세요.", False: None},
 }
+
+
+# 6.1절 가중치와 동일(risk/logic.py::compute_risk) — 근거는 Rule Engine이 실제로
+# 가장 무겁게 반영한 조건에만 붙인다(8.3절: "가중치가 가장 높은 조건 하나에 대해서만").
+_FACTOR_WEIGHT = {"sleep": 2, "hrv": 2, "weather": 1, "scan": 2, "diet": 1}
+
+
+def _top_factor(factors: list[tuple[str, str]]) -> tuple[str, str] | None:
+    if not factors:
+        return None
+    # max()는 동점일 때 먼저 나온 항목을 유지한다 — compute_risk의 검사 순서
+    # (sleep→hrv→uv→humidity→scan→diet)가 곧 동점 시 우선순위가 된다.
+    return max(factors, key=lambda factor: _FACTOR_WEIGHT.get(factor[0], 0))
+
+
+async def select_common_knowledge(db: AsyncSession, context: dict) -> dict | None:
+    """오늘 Rule Engine이 트리거한 최우선 조건 하나에 대해서만 승인된 공통 지식
+    근거를 찾는다(8.3절). sleep·humidity 외 조건은 아직 대응하는 Claim Card 매핑이
+    없어(RAG 문서에 예시가 없음) 항상 None이다.
+    """
+    top = _top_factor(context["factors"])
+    if top is None:
+        return None
+    factor_type, factor_text = top
+
+    if factor_type == "sleep":
+        metric = context["metric"]
+        facts: set[str] = set()
+        if metric and metric.sleep_hours is not None:
+            facts.add("sleep_hours_available")
+            if metric.sleep_hours < SLEEP_LOW_THRESHOLD_HOURS:
+                facts.add("sleep_below_personal_baseline_or_threshold")
+        topic = "sleep"
+    elif factor_type == "weather" and "습도" in factor_text:
+        weather = context["weather"]
+        facts = set()
+        if context["weather_consented"]:
+            facts.add("weather_consent")
+        if weather is not None:
+            facts.add("fresh_humidity_data")
+            if weather.humidity_percent is not None and weather.humidity_percent < (
+                LOW_HUMIDITY_THRESHOLD
+            ):
+                facts.add("humidity_below_rule_threshold")
+        topic = "humidity"
+    else:
+        return None
+
+    claim = await find_claim(db, feature="briefing", topic=topic, facts=facts)
+    if claim is None:
+        return None
+    return {"claim_id": claim.claim_id, "version": claim.version, "sentence": claim.sentence}
 
 
 def _product_type_rank(product_type: str | None) -> int:
@@ -114,6 +171,7 @@ async def get_or_generate_briefing(db: AsyncSession, persona_id: str) -> Briefin
     risk_level = context["risk_level"]
     factors = context["factors"]
     routine, skip = await build_routine(db, persona_id, risk_level)
+    common_knowledge = await select_common_knowledge(db, context)
 
     metric = context["metric"]
     watch_used = bool(metric and (metric.sleep_hours is not None or metric.hrv_ms is not None))
@@ -158,7 +216,7 @@ async def get_or_generate_briefing(db: AsyncSession, persona_id: str) -> Briefin
         contributing_factors=[{"type": t, "text": text} for t, text in factors],
         routine=routine,
         skip=skip,
-        common_knowledge=None,
+        common_knowledge=common_knowledge,
         data_coverage=data_coverage,
         limitation_notice=limitation_notice,
         generated_at=now_kst,

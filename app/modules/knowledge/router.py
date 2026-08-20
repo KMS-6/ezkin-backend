@@ -142,12 +142,24 @@ async def create_index(
 ) -> IndexResponse:
     # claim_ids에 해당하는 approved 청크 수 계산
     doc_result = await db.execute(
-        select(KnowledgeDocument.id).where(
+        select(
+            KnowledgeDocument.id,
+            KnowledgeDocument.claim_id,
+            KnowledgeDocument.claim_version,
+        ).where(
             KnowledgeDocument.review_status == "approved",
             KnowledgeDocument.claim_id.in_(body.claim_ids),
         )
     )
-    doc_ids = [row[0] for row in doc_result.all()]
+    documents = doc_result.all()
+    doc_ids = [row.id for row in documents]
+    claim_versions: dict[str, int] = {}
+    for row in documents:
+        if row.claim_id is None or row.claim_version is None:
+            continue
+        claim_versions[row.claim_id] = max(
+            row.claim_version, claim_versions.get(row.claim_id, row.claim_version)
+        )
 
     chunk_result = await db.execute(
         select(KnowledgeChunk).where(
@@ -161,6 +173,7 @@ async def create_index(
         version=body.version,
         is_active=False,
         claim_ids=body.claim_ids,
+        claim_versions=claim_versions,
         chunk_count=len(chunks),
     )
     db.add(idx)
@@ -172,6 +185,7 @@ async def create_index(
         version=idx.version,
         is_active=idx.is_active,
         claim_ids=idx.claim_ids,
+        claim_versions=idx.claim_versions,
         chunk_count=idx.chunk_count,
         created_at=idx.created_at,
     )
@@ -204,6 +218,7 @@ async def activate_index(
         version=idx.version,
         is_active=idx.is_active,
         claim_ids=idx.claim_ids,
+        claim_versions=idx.claim_versions,
         chunk_count=idx.chunk_count,
         created_at=idx.created_at,
     )

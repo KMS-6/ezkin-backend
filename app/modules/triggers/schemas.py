@@ -19,15 +19,6 @@ class ObservedPattern(BaseModel):
     match_count: int
 
 
-class PatternAnalysisOut(BaseModel):
-    scan_id: str
-    window: PatternWindow
-    raw_facts: list[RawFact]
-    observed_pattern: ObservedPattern | None
-    common_knowledge: dict | None
-    disclaimer: str
-
-
 class SosSessionOut(BaseModel):
     session_id: str
     quick_replies: list[str]

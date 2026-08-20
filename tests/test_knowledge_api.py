@@ -172,6 +172,7 @@ async def test_create_and_activate_index(client) -> None:
     )
     assert idx_resp.status_code == 201
     assert idx_resp.json()["is_active"] is False
+    assert idx_resp.json()["claim_versions"] == {"skin-001": 1}
 
     # 인덱스 활성화
     activate_resp = await client.post(
@@ -180,6 +181,7 @@ async def test_create_and_activate_index(client) -> None:
     )
     assert activate_resp.status_code == 200
     assert activate_resp.json()["is_active"] is True
+    assert activate_resp.json()["claim_versions"] == {"skin-001": 1}
 
 
 @pytest.mark.asyncio

@@ -6,36 +6,37 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "20260816_0002"
-down_revision: str | None = "20260814_0001"
+revision: str = "20260816_0002_knowledge"
+down_revision: str | None = "20260816_0002"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "knowledge_documents",
-        sa.Column("source_url", sa.Text(), nullable=False),
-        sa.Column("title", sa.String(length=500), nullable=False),
-        sa.Column("collected_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("license", sa.Text(), nullable=True),
-        sa.Column("source_type_note", sa.Text(), nullable=True),
-        sa.Column("review_status", sa.String(length=20), nullable=False),
-        sa.Column("claim_id", sa.String(length=100), nullable=True),
-        sa.Column("claim_version", sa.Integer(), nullable=True),
-        sa.Column("topic", sa.Text(), nullable=True),
-        sa.Column("population", sa.Text(), nullable=True),
-        sa.Column("evidence_level", sa.String(length=50), nullable=True),
-        sa.Column("allowed_features", sa.JSON(), nullable=True),
-        sa.Column("required_user_facts", sa.JSON(), nullable=True),
-        sa.Column("allowed_expressions", sa.Text(), nullable=True),
-        sa.Column("forbidden_expressions", sa.Text(), nullable=True),
-        sa.Column("next_review_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_knowledge_documents")),
-    )
+    with op.batch_alter_table("knowledge_documents") as batch_op:
+        batch_op.alter_column("source_url", existing_type=sa.String(length=500), type_=sa.Text())
+        batch_op.alter_column(
+            "title", existing_type=sa.String(length=200), type_=sa.String(length=500)
+        )
+        batch_op.alter_column("license", existing_type=sa.String(length=100), type_=sa.Text())
+        batch_op.alter_column(
+            "source_type_note", existing_type=sa.String(length=300), type_=sa.Text()
+        )
+        batch_op.alter_column(
+            "claim_id", existing_type=sa.String(length=60), type_=sa.String(length=100)
+        )
+        batch_op.alter_column("topic", existing_type=sa.String(length=100), type_=sa.Text())
+        batch_op.alter_column("population", existing_type=sa.String(length=200), type_=sa.Text())
+        batch_op.alter_column(
+            "evidence_level", existing_type=sa.String(length=20), type_=sa.String(length=50)
+        )
+        batch_op.alter_column(
+            "allowed_expressions", existing_type=sa.String(length=500), type_=sa.Text()
+        )
+        batch_op.alter_column(
+            "forbidden_expressions", existing_type=sa.String(length=500), type_=sa.Text()
+        )
+
     op.create_table(
         "knowledge_chunks",
         sa.Column("document_id", sa.Uuid(), nullable=False),
@@ -54,22 +55,47 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name=op.f("pk_knowledge_chunks")),
     )
     op.create_index(op.f("ix_knowledge_chunks_document_id"), "knowledge_chunks", ["document_id"])
-    op.create_table(
-        "knowledge_indexes",
-        sa.Column("version", sa.String(length=50), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False),
-        sa.Column("claim_ids", sa.JSON(), nullable=False),
-        sa.Column("chunk_count", sa.Integer(), nullable=False),
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_knowledge_indexes")),
-        sa.UniqueConstraint("version", name=op.f("uq_knowledge_indexes_version")),
-    )
+
+    with op.batch_alter_table("knowledge_indexes") as batch_op:
+        batch_op.alter_column(
+            "version", existing_type=sa.String(length=30), type_=sa.String(length=50)
+        )
+        batch_op.add_column(
+            sa.Column("chunk_count", sa.Integer(), server_default="0", nullable=False)
+        )
+        batch_op.alter_column("chunk_count", server_default=None)
 
 
 def downgrade() -> None:
-    op.drop_table("knowledge_indexes")
+    with op.batch_alter_table("knowledge_indexes") as batch_op:
+        batch_op.drop_column("chunk_count")
+        batch_op.alter_column(
+            "version", existing_type=sa.String(length=50), type_=sa.String(length=30)
+        )
+
     op.drop_index(op.f("ix_knowledge_chunks_document_id"), table_name="knowledge_chunks")
     op.drop_table("knowledge_chunks")
-    op.drop_table("knowledge_documents")
+
+    with op.batch_alter_table("knowledge_documents") as batch_op:
+        batch_op.alter_column(
+            "forbidden_expressions", existing_type=sa.Text(), type_=sa.String(length=500)
+        )
+        batch_op.alter_column(
+            "allowed_expressions", existing_type=sa.Text(), type_=sa.String(length=500)
+        )
+        batch_op.alter_column(
+            "evidence_level", existing_type=sa.String(length=50), type_=sa.String(length=20)
+        )
+        batch_op.alter_column("population", existing_type=sa.Text(), type_=sa.String(length=200))
+        batch_op.alter_column("topic", existing_type=sa.Text(), type_=sa.String(length=100))
+        batch_op.alter_column(
+            "claim_id", existing_type=sa.String(length=100), type_=sa.String(length=60)
+        )
+        batch_op.alter_column(
+            "source_type_note", existing_type=sa.Text(), type_=sa.String(length=300)
+        )
+        batch_op.alter_column("license", existing_type=sa.Text(), type_=sa.String(length=100))
+        batch_op.alter_column(
+            "title", existing_type=sa.String(length=500), type_=sa.String(length=200)
+        )
+        batch_op.alter_column("source_url", existing_type=sa.Text(), type_=sa.String(length=500))

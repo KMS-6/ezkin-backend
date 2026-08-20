@@ -9,9 +9,21 @@ from app.db.session import get_db
 from app.main import app
 from app.models.persona import Persona
 from app.models.scan import SkinScan
+from app.modules.reports.schemas import ReportRequest
 
 PERSONA = "persona_a1_seoyeon"
 HEADERS = {"X-Mock-Persona-Id": PERSONA}
+
+
+@pytest.mark.parametrize("period_days", [1, 7, 15, 29, 31])
+def test_report_request_rejects_unsupported_period(period_days: int) -> None:
+    with pytest.raises(ValueError):
+        ReportRequest(period_days=period_days)
+
+
+def test_report_request_rejects_unsupported_locale() -> None:
+    with pytest.raises(ValueError):
+        ReportRequest(period_days=14, locale="en-US")
 
 
 @pytest.fixture()
@@ -171,11 +183,11 @@ class TestPatternAnalysis:
         )
         assert resp.status_code == 404
 
-    async def test_scan_with_null_scores_returns_409(self, client, db_session):
+    async def test_scan_not_completed_returns_409(self, client, db_session):
         scan = SkinScan(
             persona_id=PERSONA,
             capture_method="camera",
-            status="completed",
+            status="failed",
             captured_at=_dt(date(2026, 8, 15)),
             created_at=_dt(date(2026, 8, 15)),
             scores=None,
@@ -189,7 +201,7 @@ class TestPatternAnalysis:
             headers=HEADERS,
         )
         assert resp.status_code == 409
-        assert resp.json()["detail"]["code"] == "scan_has_no_scores"
+        assert resp.json()["detail"]["code"] == "scan_not_completed"
 
     async def test_pattern_analysis_returns_schema(self, client, db_session):
         scan = SkinScan(
@@ -210,7 +222,7 @@ class TestPatternAnalysis:
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["window"] == "72h"
+        assert set(body["window"].keys()) == {"start", "end"}
         assert "raw_facts" in body
         assert "observed_pattern" in body
         assert body["common_knowledge"] is None
