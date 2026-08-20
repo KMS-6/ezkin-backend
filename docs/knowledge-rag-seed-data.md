@@ -1,10 +1,10 @@
 # 공통 지식 RAG 시드 데이터 (research.md 인용 논문 5편)
 
-- 관련 마이그레이션: `alembic/versions/20260821_0014_knowledge_seed_research_claims.py`, `alembic/versions/20260821_0015_fix_knowledge_chunks_timestamp_default.py`, `alembic/versions/20260821_0016_knowledge_seed_humidity_claim.py`, `alembic/versions/20260821_0017_revert_sleep_humidity_to_draft.py`
+- 관련 마이그레이션: `alembic/versions/20260821_0014_knowledge_seed_research_claims.py`, `alembic/versions/20260821_0015_fix_knowledge_chunks_timestamp_default.py`, `alembic/versions/20260821_0016_knowledge_seed_humidity_claim.py`, `alembic/versions/20260821_0018_revert_sleep_humidity_to_draft.py`
 - 관련 문서: `../docs/research.md`(2절 안드로겐 경로 근거), `../docs/archieve/공통지식_RAG_근거와_응답규칙_v1.md`(Claim Card 표준, 4.1/4.2/4.7/4.8절)
 - 관련 확인 작업: `system_architecture.md` 5.4/5.5절(Common Knowledge Layer, Retrieval Orchestrator) 실제 데이터 유무 점검
 
-> ⚠️ **2026-08-21 정정**: sleep·humidity 2건은 애초 스펙 3.1절이 요구하는 의료 자문·법무 검토 없이 `approved`로 등록됐다(다른 4건은 draft로 남겨 규칙을 지켰으나 이 두 건에는 실수로 적용하지 않음). `alembic/versions/20260821_0017_revert_sleep_humidity_to_draft.py`에서 두 건 모두 `review_status`를 `draft`로 되돌려 검색·인용 대상에서 제외했다. 아래 문서는 시드 당시의 원래 의도를 기록으로 남기되, **현재 실제 상태는 draft**이며 `find_claim`은 두 topic 모두 `None`을 반환한다.
+> ⚠️ **2026-08-21 정정**: sleep·humidity 2건은 애초 스펙 3.1절이 요구하는 의료 자문·법무 검토 없이 `approved`로 등록됐다(다른 4건은 draft로 남겨 규칙을 지켰으나 이 두 건에는 실수로 적용하지 않음). `alembic/versions/20260821_0018_revert_sleep_humidity_to_draft.py`에서 두 건 모두 `review_status`를 `draft`로 되돌려 검색·인용 대상에서 제외했다. 아래 문서는 시드 당시의 원래 의도를 기록으로 남기되, **현재 실제 상태는 draft**이며 `find_claim`은 두 topic 모두 `None`을 반환한다.
 
 ## 배경
 
@@ -100,4 +100,4 @@ await keyword_search(db, ["습도", "TEWL"], limit=5)
 - ~~`knowledge_chunks` 테이블의 `created_at`/`updated_at` `server_default`가 Postgres 전용 `now()`로 정의돼 있어(`20260816_0002_knowledge_tables.py`), SQLite 마이그레이션 테스트에서 그대로 insert하면 실패한다.~~ **해결됨**: `alembic/versions/20260821_0015_fix_knowledge_chunks_timestamp_default.py`에서 `server_default`를 Postgres/SQLite 모두 호환되는 `CURRENT_TIMESTAMP`로 통일했다(기존 병합된 마이그레이션은 수정하지 않고 새 마이그레이션으로 처리).
 - `draft` 상태인 4건은 의료 자문·법무 검토(스펙 3.1절) 없이는 `approved`로 전환하면 안 된다. (코드 변경으로 해결할 수 없는 항목이라 그대로 남겨둠)
 - ~~`humidity` 주제 Claim Card는 아직 시드되지 않았다~~ **해결됨**: `alembic/versions/20260821_0016_knowledge_seed_humidity_claim.py`에서 `공통지식_RAG_근거와_응답규칙_v1.md` 4.2절 근거(PubMed 27306376)로 `claim_humidity_dryness_001`을 시드하고, 활성 인덱스를 `knowledge-index-2026-08-21-v2`(sleep+humidity)로 교체했다.
-- **신규(2026-08-21)**: 0014·0016 마이그레이션에서 sleep/humidity 2건이 의료 자문·법무 검토 없이 `approved`로 등록됐던 것을 발견 — 3.1절 규칙을 다른 4건에는 지켰으나 이 두 건에는 실수로 적용하지 않았다. `alembic/versions/20260821_0017_revert_sleep_humidity_to_draft.py`로 두 건 모두 `draft`로 되돌렸다. 실제 검토가 끝나면 review_status를 `approved`로 되돌리는 후속 마이그레이션을 새로 작성해야 한다(0017을 재사용하지 않는다).
+- **신규(2026-08-21)**: 0014·0016 마이그레이션에서 sleep/humidity 2건이 의료 자문·법무 검토 없이 `approved`로 등록됐던 것을 발견 — 3.1절 규칙을 다른 4건에는 지켰으나 이 두 건에는 실수로 적용하지 않았다. `alembic/versions/20260821_0018_revert_sleep_humidity_to_draft.py`로 두 건 모두 `draft`로 되돌렸다. 실제 검토가 끝나면 review_status를 `approved`로 되돌리는 후속 마이그레이션을 새로 작성해야 한다(0017을 재사용하지 않는다).
