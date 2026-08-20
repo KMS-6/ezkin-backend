@@ -32,6 +32,7 @@ async def _seed_claim(
     sentence: str,
     version: int = 1,
     allowed_features: list[str] | None = None,
+    population: str = "성인",
 ) -> None:
     doc = KnowledgeDocument(
         source_url="https://pubmed.ncbi.nlm.nih.gov/40432361/",
@@ -41,13 +42,21 @@ async def _seed_claim(
         claim_id=claim_id,
         claim_version=version,
         topic=topic,
+        population=population,
         allowed_features=allowed_features or ["briefing", "report"],
         required_user_facts=required_user_facts,
         allowed_expressions=sentence,
     )
     db.add(doc)
     await db.flush()
-    db.add(KnowledgeIndex(version=f"idx-{claim_id}", is_active=True, claim_ids=[claim_id]))
+    db.add(
+        KnowledgeIndex(
+            version=f"idx-{claim_id}",
+            is_active=True,
+            claim_ids=[claim_id],
+            claim_versions={claim_id: version},
+        )
+    )
     await db.commit()
 
 
@@ -122,6 +131,56 @@ class TestFindClaim:
         )
 
         assert result is None
+
+    async def test_no_match_for_non_general_population(self, db_session: AsyncSession) -> None:
+        await _seed_claim(
+            db_session,
+            claim_id="claim_sleep_barrier_001",
+            topic="sleep",
+            required_user_facts=["sleep_hours_available"],
+            sentence=SLEEP_SENTENCE,
+            population="청소년",
+        )
+
+        result = await find_claim(
+            db_session, feature="briefing", topic="sleep", facts={"sleep_hours_available"}
+        )
+
+        assert result is None
+
+    async def test_active_index_pins_claim_version(self, db_session: AsyncSession) -> None:
+        await _seed_claim(
+            db_session,
+            claim_id="claim_sleep_barrier_001",
+            topic="sleep",
+            required_user_facts=["sleep_hours_available"],
+            sentence="인덱스 생성 당시 문장",
+            version=1,
+        )
+        db_session.add(
+            KnowledgeDocument(
+                source_url="https://example.com/v2",
+                title="새 버전",
+                collected_at=datetime.now(UTC),
+                review_status="approved",
+                claim_id="claim_sleep_barrier_001",
+                claim_version=2,
+                topic="sleep",
+                population="성인",
+                allowed_features=["briefing"],
+                required_user_facts=["sleep_hours_available"],
+                allowed_expressions="인덱스 생성 후 승인된 문장",
+            )
+        )
+        await db_session.commit()
+
+        result = await find_claim(
+            db_session, feature="briefing", topic="sleep", facts={"sleep_hours_available"}
+        )
+
+        assert result is not None
+        assert result.version == 1
+        assert result.sentence == "인덱스 생성 당시 문장"
 
     async def test_no_match_when_not_approved(self, db_session: AsyncSession) -> None:
         doc = KnowledgeDocument(

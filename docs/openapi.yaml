@@ -1214,6 +1214,13 @@ components:
         cosmetic_id: { type: string, format: uuid }
         name: { type: string }
         reason: { type: string }
+    CommonKnowledgeCitation:
+      type: object
+      required: [claim_id, version, sentence]
+      properties:
+        claim_id: { type: string }
+        version: { type: integer }
+        sentence: { type: string }
     BriefingResponse:
       type: object
       required: [status, date]
@@ -1229,7 +1236,10 @@ components:
           items: { type: object, required: [type, text], properties: { type: { type: string }, text: { type: string } } }
         routine: { type: array, items: { $ref: '#/components/schemas/RoutineStep' } }
         skip: { type: array, items: { $ref: '#/components/schemas/SkipItem' } }
-        common_knowledge: { type: object, nullable: true, description: Always null — RAG retrieval is not implemented }
+        common_knowledge:
+          allOf: [{ $ref: '#/components/schemas/CommonKnowledgeCitation' }]
+          nullable: true
+          description: Approved evidence matching the active index and briefing context, or null
         data_coverage: { type: object, additionalProperties: { type: boolean } }
         limitation_notice: { type: string }
         generated_at: { type: string, format: date-time }
@@ -1484,10 +1494,14 @@ components:
       properties: { version: { type: string } }
     KnowledgeIndexOut:
       type: object
-      required: [version, claim_ids, is_active]
+      required: [version, claim_ids, claim_versions, is_active]
       properties:
         version: { type: string }
         claim_ids: { type: array, items: { type: string } }
+        claim_versions:
+          type: object
+          additionalProperties: { type: integer }
+          description: Claim versions pinned when this index was created
         is_active: { type: boolean }
 
     # ── Feedback ──

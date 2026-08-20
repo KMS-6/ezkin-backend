@@ -23,6 +23,17 @@ async def active_claim_ids(db: AsyncSession) -> set[str]:
     return allowed
 
 
+async def active_claim_versions(db: AsyncSession) -> dict[str, int]:
+    """활성 인덱스가 생성될 때 고정한 claim_id별 버전."""
+    idx_result = await db.execute(
+        select(KnowledgeIndex).where(KnowledgeIndex.is_active == True)  # noqa: E712
+    )
+    allowed: dict[str, int] = {}
+    for idx in idx_result.scalars():
+        allowed.update(idx.claim_versions or {})
+    return allowed
+
+
 async def keyword_search(
     db: AsyncSession,
     keywords: list[str],
