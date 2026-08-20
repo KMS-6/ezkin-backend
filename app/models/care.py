@@ -52,7 +52,7 @@ class RoutineStep(
         ForeignKey("care_routines.id", ondelete="CASCADE"), index=True
     )
     cosmetic_id: Mapped[UUID] = mapped_column(
-        ForeignKey("cosmetics.id", ondelete="RESTRICT"), index=True
+        ForeignKey("user_cosmetics.id", ondelete="RESTRICT"), index=True
     )
     step_order: Mapped[int] = mapped_column(Integer)
     action: Mapped[str] = mapped_column(String(100))

@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.scan import SkinScan
@@ -22,7 +22,11 @@ async def check_eligibility(
         .where(
             SkinScan.persona_id == persona_id,
             SkinScan.status == "completed",
-            SkinScan.scores.is_not(None),
+            or_(
+                SkinScan.redness_score.is_not(None),
+                SkinScan.dryness_score.is_not(None),
+                SkinScan.oiliness_score.is_not(None),
+            ),
             func.date(SkinScan.captured_at) >= start,
             func.date(SkinScan.captured_at) <= as_of,
         )

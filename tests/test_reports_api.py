@@ -171,11 +171,11 @@ class TestPatternAnalysis:
         )
         assert resp.status_code == 404
 
-    async def test_scan_with_null_scores_returns_409(self, client, db_session):
+    async def test_scan_not_completed_returns_409(self, client, db_session):
         scan = SkinScan(
             persona_id=PERSONA,
             capture_method="camera",
-            status="completed",
+            status="failed",
             captured_at=_dt(date(2026, 8, 15)),
             created_at=_dt(date(2026, 8, 15)),
             scores=None,
@@ -189,7 +189,7 @@ class TestPatternAnalysis:
             headers=HEADERS,
         )
         assert resp.status_code == 409
-        assert resp.json()["detail"]["code"] == "scan_has_no_scores"
+        assert resp.json()["detail"]["code"] == "scan_not_completed"
 
     async def test_pattern_analysis_returns_schema(self, client, db_session):
         scan = SkinScan(
@@ -210,7 +210,7 @@ class TestPatternAnalysis:
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["window"] == "72h"
+        assert set(body["window"].keys()) == {"start", "end"}
         assert "raw_facts" in body
         assert "observed_pattern" in body
         assert body["common_knowledge"] is None
