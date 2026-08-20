@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.idempotency import check_idempotency, store_idempotency
 from app.core.mock_persona import get_persona_id
-from app.core.storage import read_and_validate_image, store_bytes
+from app.core.storage import read_and_validate_image
 from app.db.session import get_db
 from app.models.scan import SkinQuestionnaireAnswers, SkinScan
 from app.modules.scans.analysis import score_questionnaire
@@ -185,7 +185,6 @@ async def create_skin_scan(
 
     if capture_method == "camera":
         assert image_bytes is not None
-        scan.image_storage_key = store_bytes(image_bytes, "skin-scans")
         outcome = await analyze_image(image_bytes, image.content_type)
         if outcome is None:
             scan.status = "failed"
@@ -198,12 +197,13 @@ async def create_skin_scan(
         else:
             scan.scores = outcome.scores
             scan.confidence = outcome.confidence
-            scan.lower_accuracy = True
+            scan.lower_accuracy = False
             scan.status = "completed"
             scan.completed_at = datetime.now(UTC)
             scan.model_provider = "anthropic"
             scan.model_name = settings.vision_llm_model
             scan.model_version = "1"
+            scan.schema_version = "skin_observation.v1"
     else:
         assert parsed_answers is not None
         scores = score_questionnaire(parsed_answers)
@@ -212,6 +212,7 @@ async def create_skin_scan(
         scan.lower_accuracy = True
         scan.status = "completed"
         scan.completed_at = datetime.now(UTC)
+        scan.schema_version = "skin_observation.v1"
 
     db.add(scan)
     await db.flush()
@@ -295,7 +296,7 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         capture_method=scan.capture_method,
         created_at=scan.created_at,
         lower_accuracy=scan.lower_accuracy,
-        schema_version="skin_observation.v1" if scan.status == "completed" else None,
+        schema_version=scan.schema_version,
         scores=scan.scores,
         confidence=scan.confidence,
         delta_vs_baseline=delta_vs_baseline,

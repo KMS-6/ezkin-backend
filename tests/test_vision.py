@@ -5,22 +5,36 @@
 반영하는지는 monkeypatch로 검증한다.
 """
 
+from datetime import UTC, datetime
+from io import BytesIO
 from types import SimpleNamespace
+from uuid import UUID
 
 import anthropic
+import httpx
 from httpx import AsyncClient
+from PIL import Image
 from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.scan import SkinScan
 from app.modules.scans import router as scans_router
 from app.modules.scans.vision import (
     VisionAnalysisResult,
     VisionOutcome,
     _build_outcome,
+    _sanitize_image,
     analyze_image,
 )
 
 _JPEG_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+
+
+def _valid_jpeg_bytes() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="JPEG")
+    return output.getvalue()
 
 
 def _result(**overrides: object) -> VisionAnalysisResult:
@@ -79,7 +93,7 @@ async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> 
     monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("anthropic-test-key"))
     monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
 
-    outcome = await analyze_image(_JPEG_BYTES, "image/jpeg")
+    outcome = await analyze_image(_valid_jpeg_bytes(), "image/jpeg")
 
     assert outcome is not None
     assert captured["api_key"] == "anthropic-test-key"
@@ -89,6 +103,54 @@ async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> 
     assert content[0]["source"]["type"] == "base64"
     assert content[0]["source"]["media_type"] == "image/jpeg"
     assert content[1] == {"type": "text", "text": "이 사진을 분석해 주세요."}
+
+
+async def test_analyze_image_maps_timeout_to_retryable_failure(monkeypatch) -> None:
+    class FakeMessages:
+        async def parse(self, **kwargs):
+            raise anthropic.APITimeoutError(
+                request=httpx.Request("POST", "https://example.test")
+            )
+
+    class FakeClient:
+        messages = FakeMessages()
+
+        def __init__(self, api_key: str) -> None:
+            pass
+
+        def with_options(self, **kwargs):
+            return self
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+
+    result = await analyze_image(_valid_jpeg_bytes(), "image/jpeg")
+
+    assert result is not None
+    assert result.failure_code == "analysis_timeout"
+
+
+async def test_analyze_image_maps_provider_error_to_retryable_failure(monkeypatch) -> None:
+    class FakeMessages:
+        async def parse(self, **kwargs):
+            raise RuntimeError("provider unavailable")
+
+    class FakeClient:
+        messages = FakeMessages()
+
+        def __init__(self, api_key: str) -> None:
+            pass
+
+        def with_options(self, **kwargs):
+            return self
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+
+    result = await analyze_image(_valid_jpeg_bytes(), "image/jpeg")
+
+    assert result is not None
+    assert result.failure_code == "analysis_failed"
 
 
 def test_build_outcome_returns_scores_when_quality_passes() -> None:
@@ -107,6 +169,27 @@ def test_build_outcome_drops_low_confidence_metric() -> None:
     assert "oiliness" not in outcome.confidence
 
 
+def test_build_outcome_fails_when_all_metrics_have_low_confidence() -> None:
+    outcome = _build_outcome(
+        _result(redness_confidence=0.1, dryness_confidence=0.2, oiliness_confidence=0.3)
+    )
+
+    assert outcome.failure_code == "insufficient_confidence"
+    assert outcome.scores == {}
+
+
+def test_sanitize_image_removes_exif() -> None:
+    source = BytesIO()
+    exif = Image.Exif()
+    exif[0x010F] = "sensitive-device"
+    Image.new("RGB", (2, 2), "white").save(source, format="JPEG", exif=exif)
+
+    sanitized = _sanitize_image(source.getvalue(), "image/jpeg")
+
+    with Image.open(BytesIO(sanitized)) as image:
+        assert not image.getexif()
+
+
 def test_build_outcome_reports_first_quality_failure_in_table_order() -> None:
     # face_not_detected가 표에서 image_blurry보다 앞서므로, 둘 다 실패해도
     # face_not_detected만 사용자에게 안내한다.
@@ -117,7 +200,10 @@ def test_build_outcome_reports_first_quality_failure_in_table_order() -> None:
 
 
 async def test_camera_scan_completes_when_vision_analysis_succeeds(
-    client: AsyncClient, persona_headers: dict[str, str], monkeypatch
+    client: AsyncClient,
+    db_session: AsyncSession,
+    persona_headers: dict[str, str],
+    monkeypatch,
 ) -> None:
     async def fake_analyze(image_bytes: bytes, media_type: str) -> VisionOutcome:
         return VisionOutcome(
@@ -144,7 +230,43 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
         "name": "claude-haiku-4-5",
         "version": "1",
     }
+    assert body["lower_accuracy"] is False
     assert body["failure"] is None
+
+    scan = await db_session.get(SkinScan, UUID(scan_id))
+    assert scan is not None
+    assert scan.image_storage_key is None
+    assert scan.model_provider == "anthropic"
+    assert scan.model_name == settings.vision_llm_model
+    assert scan.model_version == "1"
+    assert scan.schema_version == "skin_observation.v1"
+
+
+async def test_camera_scan_uses_persisted_model_and_schema_metadata(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    persona_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    scan = SkinScan(
+        persona_id="persona_001",
+        capture_method="camera",
+        captured_at=datetime(2026, 8, 16, 9, tzinfo=UTC),
+        status="completed",
+        model_provider="anthropic",
+        model_name="model-used-at-analysis",
+        model_version="1",
+        schema_version="skin_observation.v1",
+    )
+    db_session.add(scan)
+    await db_session.commit()
+    monkeypatch.setattr(settings, "vision_llm_model", "new-current-model")
+
+    result = await client.get(f"/api/v1/skin-scans/{scan.id}", headers=persona_headers)
+
+    body = result.json()
+    assert body["model"]["name"] == "model-used-at-analysis"
+    assert body["schema_version"] == "skin_observation.v1"
 
 
 async def test_camera_scan_fails_with_specific_code_when_quality_gate_fails(

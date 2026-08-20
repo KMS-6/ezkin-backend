@@ -4,14 +4,15 @@
 검증·필터링한다 — 2절 제외 범위("LLM의 독자적 수치 계산 또는 제품명 생성 금지")에
 맞춰 품질 통과 여부와 confidence 임계값 판정은 LLM이 아니라 이 모듈이 최종 결정한다.
 
-API 키가 없거나, SDK가 없거나, 지원하지 않는 이미지 형식(HEIC — Claude Vision 미지원)
-이거나, 호출이 실패·타임아웃되면 예외를 던지지 않고 None을 반환한다 — 호출부는 기존
-model_not_implemented 폴백으로 진행한다(챗봇 llm_escalation.py와 동일한 17절 가용성
-원칙: LLM 장애·부재에도 서비스는 계속 동작해야 한다).
+API 키가 없거나 SDK가 없거나 지원하지 않는 이미지 형식이면 None을 반환하고, 호출 실패와
+타임아웃은 재시도 가능한 실패 결과로 구분한다. 호출부는 예외 없이 상태를 저장하므로 LLM
+장애·부재에도 서비스는 계속 동작한다.
 """
 
 import base64
+from io import BytesIO
 
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -107,18 +108,35 @@ def _build_outcome(result: VisionAnalysisResult) -> VisionOutcome:
         "oiliness": (result.oiliness_score, result.oiliness_confidence),
     }
     kept = {metric: pair for metric, pair in raw.items() if pair[1] >= CONFIDENCE_THRESHOLD}
+    if not kept:
+        return VisionOutcome(
+            failure_code="insufficient_confidence",
+            failure_message="분석 신뢰도가 낮습니다. 촬영 조건을 확인하고 다시 촬영해 주세요.",
+        )
     return VisionOutcome(
         scores={metric: round(score, 2) for metric, (score, _) in kept.items()},
         confidence={metric: round(confidence, 2) for metric, (_, confidence) in kept.items()},
     )
 
 
+def _sanitize_image(image_bytes: bytes, media_type: str) -> bytes:
+    """이미지를 디코딩·재인코딩해 EXIF를 포함한 원본 메타데이터를 제거한다."""
+    output = BytesIO()
+    with Image.open(BytesIO(image_bytes)) as source:
+        source.load()
+        if media_type == "image/jpeg":
+            source.convert("RGB").save(output, format="JPEG", quality=90)
+        else:
+            mode = "RGBA" if "A" in source.getbands() else "RGB"
+            source.convert(mode).save(output, format="PNG")
+    return output.getvalue()
+
+
 async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | None:
     """이미지를 분석해 품질 게이트 결과 또는 관찰값을 반환한다.
 
-    분석 자체를 시도할 수 없으면(키 없음·SDK 없음·미지원 형식·호출 실패) None을
-    반환한다 — 이 경우와 "품질 게이트 실패"는 다르다: 전자는 호출부가
-    model_not_implemented로, 후자는 VisionOutcome.failure_code로 구분해서 처리한다.
+    분석 자체를 시도할 수 없으면(키 없음·SDK 없음·미지원 형식) None을 반환한다.
+    품질 게이트와 호출 실패는 각각 구체적인 VisionOutcome.failure_code로 반환한다.
     """
     api_key = settings.anthropic_api_key
     if api_key is None or media_type not in _SUPPORTED_MEDIA_TYPES:
@@ -129,9 +147,9 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
     except ImportError:
         return None
 
-    encoded_image = base64.b64encode(image_bytes).decode("ascii")
-
     try:
+        sanitized_bytes = _sanitize_image(image_bytes, media_type)
+        encoded_image = base64.b64encode(sanitized_bytes).decode("ascii")
         client = anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
         response = await client.with_options(timeout=ANALYSIS_TIMEOUT_SECONDS).messages.parse(
             model=settings.vision_llm_model,
@@ -155,10 +173,21 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
             ],
             output_format=VisionAnalysisResult,
         )
+    except anthropic.APITimeoutError:
+        return VisionOutcome(
+            failure_code="analysis_timeout",
+            failure_message="분석 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+        )
     except Exception:
-        return None
+        return VisionOutcome(
+            failure_code="analysis_failed",
+            failure_message="이미지 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        )
 
     result = response.parsed_output
     if result is None:
-        return None
+        return VisionOutcome(
+            failure_code="analysis_failed",
+            failure_message="이미지 분석 결과를 확인할 수 없습니다. 다시 시도해 주세요.",
+        )
     return _build_outcome(result)
