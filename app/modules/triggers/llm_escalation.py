@@ -97,7 +97,7 @@ def validate_llm_result(result: LLMParseResult, message: str) -> ParsedMessage |
     )
 
 
-async def escalate_parse(message: str) -> ParsedMessage | None:
+async def escalate_parse(message: str, persona_context: str | None = None) -> ParsedMessage | None:
     """LLM으로 파싱을 보정한다. 키 미설정·SDK 부재·호출 실패 시 None."""
     api_key = settings.anthropic_api_key
     if api_key is None:
@@ -107,6 +107,15 @@ async def escalate_parse(message: str) -> ParsedMessage | None:
         import anthropic
     except ImportError:
         return None
+
+    system_prompt = _SYSTEM_PROMPT
+    if persona_context:
+        # 참고 정보일 뿐 — intent/entity 유효성은 여전히 validate_llm_result가
+        # nlu.INTENTS·별칭 사전으로 강제한다. 답변 생성에는 쓰지 않는다.
+        system_prompt = (
+            f"{_SYSTEM_PROMPT}\n\n참고용 사용자 프로필(모호한 표현 해석에만 참고, 답변 생성 "
+            f"금지): {persona_context}"
+        )
 
     few_shot_messages: list[dict] = []
     for text, expected in _FEW_SHOT_EXAMPLES:
@@ -119,7 +128,7 @@ async def escalate_parse(message: str) -> ParsedMessage | None:
         response = await client.with_options(timeout=ESCALATION_TIMEOUT_SECONDS).messages.parse(
             model=settings.chat_llm_model,
             max_tokens=ESCALATION_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[*few_shot_messages, {"role": "user", "content": message}],
             output_format=LLMParseResult,
         )

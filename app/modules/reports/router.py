@@ -90,6 +90,6 @@ async def get_pattern_analysis(
         window=result["window"],
         raw_facts=result["raw_facts"],
         observed_pattern=result["observed_pattern"],
-        common_knowledge=None,
+        common_knowledge=result["common_knowledge"],
         disclaimer=result["disclaimer"],
     )

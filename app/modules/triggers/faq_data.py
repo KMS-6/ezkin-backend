@@ -35,6 +35,8 @@ FAQ_ENTRIES = [
         "intent": "skin_condition",
         "keywords": ["건조", "당김", "푸석"],
         "reply": "보습 제품을 층층이 덧발라 수분 손실을 줄여보세요.",
+        # persona.summary_traits.primary_concern 일치 시 랭킹 가점(logic.py::_faq_score).
+        "related_concerns": ["cn_dryness"],
     },
     {
         "faq_id": "faq_routine_order",
@@ -114,6 +116,8 @@ FAQ_ENTRIES = [
         "keywords": ["뾰루지", "여드름", "트러블 케어"],
         "reply": "해당 부위는 손으로 만지거나 짜지 않고, 자극이 적은 진정 제품으로 관리하는 "
         "것이 일반적으로 권장돼요.",
+        # cn_hormonal(생리 주기 트러블)도 부위·양상이 겹쳐 같은 FAQ로 가점한다.
+        "related_concerns": ["cn_acne", "cn_hormonal"],
     },
     {
         "faq_id": "faq_niacinamide_usage",

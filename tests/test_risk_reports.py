@@ -74,7 +74,7 @@ async def test_eligibility_and_report_lifecycle(
     assert body["safety_status"] == "wellness_only"
     period = body["period"]
     assert period["period_days"] == 14
-    expected_end_date = date.today()
+    expected_end_date = datetime.now(UTC).date()
     expected_start_date = expected_end_date - timedelta(days=13)
     assert period["start_date"] == expected_start_date.isoformat()
     assert period["end_date"] == expected_end_date.isoformat()
@@ -92,3 +92,26 @@ async def test_eligibility_and_report_lifecycle(
         json={"rating": "helpful"},
     )
     assert unknown_generation_feedback.status_code == 404
+
+
+async def test_eligibility_uses_utc_date_not_server_local_timezone(
+    client: AsyncClient, persona_headers: dict[str, str], monkeypatch: object
+) -> None:
+    """서버 로컬 타임존이 UTC보다 하루 앞선 환경(KST 등)에서도
+    UTC 기준 최근 스캔으로 eligible 판정돼야 한다."""
+    utc_now = datetime.now(UTC)
+    for i in range(14):
+        await _submit_scan(client, persona_headers, utc_now - timedelta(days=i, minutes=1))
+
+    # 서버가 UTC보다 하루 앞선 로컬 타임존(예: 자정 직후 KST)에 있는 상황을 시뮬레이션한다.
+    fake_local_today = (utc_now + timedelta(days=1)).date()
+
+    class _FakeDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return fake_local_today
+
+    monkeypatch.setattr("app.modules.reports.service.date", _FakeDate)
+
+    eligibility = await client.get("/api/v1/analysis/eligibility", headers=persona_headers)
+    assert eligibility.json()["eligible"] is True
