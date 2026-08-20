@@ -178,7 +178,6 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
         )
     except (
         anthropic.InternalServerError,
-        anthropic.ServiceUnavailableError,
         anthropic.OverloadedError,
         anthropic.RateLimitError,
         anthropic.APIConnectionError,
