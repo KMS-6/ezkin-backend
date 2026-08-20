@@ -18,7 +18,7 @@ QUESTIONNAIRE_ANSWERS = json.dumps(
 
 
 async def test_pattern_analysis_requires_completed_scan(
-    client: AsyncClient, persona_headers: dict[str, str]
+    client: AsyncClient, persona_headers: dict[str, str], jpeg_bytes: bytes
 ) -> None:
     missing = await client.get(
         "/api/v1/pattern-analysis",
@@ -32,7 +32,6 @@ async def test_pattern_analysis_requires_completed_scan(
     )
     assert malformed.status_code == 422
 
-    jpeg_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 32
     camera_scan = await client.post(
         "/api/v1/skin-scans",
         headers={**persona_headers, "Idempotency-Key": "idem-camera-pattern"},

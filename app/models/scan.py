@@ -29,3 +29,7 @@ class SkinScan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     failure_code: Mapped[str | None] = mapped_column(String(50))
     failure_message: Mapped[str | None] = mapped_column(String(300))
     failure_retryable: Mapped[bool | None] = mapped_column(Boolean)
+    analysis_provider: Mapped[str | None] = mapped_column(String(50))
+    analysis_model: Mapped[str | None] = mapped_column(String(100))
+    analysis_model_version: Mapped[str | None] = mapped_column(String(50))
+    analysis_schema_version: Mapped[str | None] = mapped_column(String(50))

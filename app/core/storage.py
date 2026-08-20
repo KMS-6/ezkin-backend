@@ -1,7 +1,9 @@
 import uuid
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
+from PIL import Image, UnidentifiedImageError
 
 from app.core.config import settings
 
@@ -29,7 +31,7 @@ def _sniff_extension(head: bytes) -> str:
 
 
 async def read_and_validate_image(file: UploadFile) -> bytes:
-    """Read an uploaded image fully, enforcing content-type, size, and magic bytes."""
+    """Read and validate an image, stripping metadata from JPEG and PNG content."""
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
         raise _invalid_image_type()
 
@@ -47,8 +49,21 @@ async def read_and_validate_image(file: UploadFile) -> bytes:
     if not content:
         raise _invalid_image_type()
 
-    _sniff_extension(content[:16])
-    return content
+    extension = _sniff_extension(content[:16])
+    if extension == "heic":
+        return content
+
+    try:
+        with Image.open(BytesIO(content)) as image:
+            image.load()
+            output = BytesIO()
+            if extension == "jpg":
+                image.convert("RGB").save(output, format="JPEG")
+            else:
+                image.save(output, format="PNG")
+    except (OSError, UnidentifiedImageError) as exc:
+        raise _invalid_image_type() from exc
+    return output.getvalue()
 
 
 def store_bytes(content: bytes, subdir: str) -> str:

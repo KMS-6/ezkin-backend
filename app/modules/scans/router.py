@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.idempotency import check_idempotency, store_idempotency
 from app.core.mock_persona import get_persona_id
-from app.core.storage import read_and_validate_image, store_bytes
+from app.core.storage import read_and_validate_image
 from app.db.session import get_db
 from app.models.scan import SkinScan
 from app.modules.scans.analysis import score_questionnaire
@@ -195,7 +195,6 @@ async def create_skin_scan(
 
     if capture_method == "camera":
         assert image_bytes is not None
-        scan.image_key = store_bytes(image_bytes, "skin-scans")
         outcome = await analyze_image(image_bytes, image.content_type)
         if outcome is None:
             scan.status = "failed"
@@ -206,7 +205,7 @@ async def create_skin_scan(
             scan.status = "failed"
             scan.failure_code = outcome.failure_code
             scan.failure_message = outcome.failure_message
-            scan.failure_retryable = True
+            scan.failure_retryable = outcome.failure_retryable
         else:
             previous = await _latest_completed_scan(db, persona_id)
             baseline_history = await _recent_completed_scores(db, persona_id)
@@ -214,7 +213,11 @@ async def create_skin_scan(
             scan.confidence = outcome.confidence
             scan.delta_vs_previous = _compute_delta_vs_previous(outcome.scores, previous)
             scan.delta_vs_baseline = _compute_delta_vs_baseline(outcome.scores, baseline_history)
-            scan.lower_accuracy = True
+            scan.lower_accuracy = False
+            scan.analysis_provider = outcome.model_provider
+            scan.analysis_model = outcome.model_name
+            scan.analysis_model_version = outcome.model_version
+            scan.analysis_schema_version = outcome.schema_version
             scan.status = "completed"
             scan.limitation_notice = (
                 "조명·기기 차이에 따라 오차가 있을 수 있는 개인 기준 참고 지표입니다."
@@ -229,6 +232,7 @@ async def create_skin_scan(
         scan.delta_vs_previous = _compute_delta_vs_previous(scores, previous)
         scan.delta_vs_baseline = _compute_delta_vs_baseline(scores, baseline_history)
         scan.lower_accuracy = True
+        scan.analysis_schema_version = "skin_observation.v1"
         scan.status = "completed"
         scan.limitation_notice = (
             "조명·기기 차이에 따라 오차가 있을 수 있는 개인 기준 참고 지표입니다."
@@ -269,7 +273,13 @@ def _scan_model(scan: SkinScan) -> SkinScanModel | None:
     if scan.status != "completed":
         return None
     if scan.capture_method == "camera":
-        return SkinScanModel(provider="openai", name=settings.vision_llm_model, version="1")
+        if not (scan.analysis_provider and scan.analysis_model and scan.analysis_model_version):
+            return None
+        return SkinScanModel(
+            provider=scan.analysis_provider,
+            name=scan.analysis_model,
+            version=scan.analysis_model_version,
+        )
     # questionnaire 채점(analysis.py::score_questionnaire)은 외부 모델을 쓰지 않는
     # 규칙 기반 로직이라 실제 모델 메타데이터가 없다.
     return SkinScanModel(provider="TBD", name="TBD", version="TBD")
@@ -288,7 +298,7 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         capture_method=scan.capture_method,
         created_at=scan.created_at,
         lower_accuracy=scan.lower_accuracy,
-        schema_version="skin_observation.v1" if scan.status == "completed" else None,
+        schema_version=scan.analysis_schema_version if scan.status == "completed" else None,
         scores=scan.scores,
         confidence=scan.confidence,
         delta_vs_baseline=scan.delta_vs_baseline,

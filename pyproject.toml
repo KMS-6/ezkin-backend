@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.116,<1",
     "email-validator>=2.2,<3",
     "openai>=3,<4",
+    "pillow>=11,<12",
     "pydantic-settings>=2.10,<3",
     "python-multipart>=0.0.20,<1",
     "sqlalchemy[asyncio]>=2.0,<3",

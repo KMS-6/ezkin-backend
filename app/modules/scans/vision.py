@@ -4,10 +4,8 @@
 검증·필터링한다 — 2절 제외 범위("LLM의 독자적 수치 계산 또는 제품명 생성 금지")에
 맞춰 품질 통과 여부와 confidence 임계값 판정은 LLM이 아니라 이 모듈이 최종 결정한다.
 
-API 키가 없거나, SDK가 없거나, 지원하지 않는 이미지 형식(HEIC — OpenAI Vision 미지원)
-이거나, 호출이 실패·타임아웃되면 예외를 던지지 않고 None을 반환한다 — 호출부는 기존
-model_not_implemented 폴백으로 진행한다(챗봇 llm_escalation.py와 동일한 17절 가용성
-원칙: LLM 장애·부재에도 서비스는 계속 동작해야 한다).
+API 키가 없거나 SDK가 없거나 지원하지 않는 이미지 형식이면 None을 반환한다. 일시적인
+호출 실패와 타임아웃은 재시도 가능한 실패 결과로 구분한다.
 """
 
 import base64
@@ -18,6 +16,9 @@ from app.core.config import settings
 
 ANALYSIS_TIMEOUT_SECONDS = 20.0
 ANALYSIS_MAX_TOKENS = 500
+VISION_PROVIDER = "openai"
+VISION_MODEL_VERSION = "1"
+VISION_SCHEMA_VERSION = "skin_observation.v1"
 
 # 5.4절: 신뢰도가 기준 미만인 지표는 결과에서 제외한다. 임계값은 스펙 5.3절에서도
 # "확인 필요"로 남아 있는 미확정 값이라, questionnaire 경로의 기본 confidence(0.5,
@@ -75,8 +76,13 @@ class VisionOutcome(BaseModel):
 
     failure_code: str | None = None
     failure_message: str | None = None
+    failure_retryable: bool = False
     scores: dict[str, float] = Field(default_factory=dict)
     confidence: dict[str, float] = Field(default_factory=dict)
+    model_provider: str | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    schema_version: str | None = None
 
 
 def _quality_failure(result: VisionAnalysisResult) -> tuple[str, str] | None:
@@ -99,7 +105,11 @@ def _build_outcome(result: VisionAnalysisResult) -> VisionOutcome:
     failure = _quality_failure(result)
     if failure is not None:
         code, message = failure
-        return VisionOutcome(failure_code=code, failure_message=message)
+        return VisionOutcome(
+            failure_code=code,
+            failure_message=message,
+            failure_retryable=True,
+        )
 
     raw = {
         "redness": (result.redness_score, result.redness_confidence),
@@ -107,6 +117,12 @@ def _build_outcome(result: VisionAnalysisResult) -> VisionOutcome:
         "oiliness": (result.oiliness_score, result.oiliness_confidence),
     }
     kept = {metric: pair for metric, pair in raw.items() if pair[1] >= CONFIDENCE_THRESHOLD}
+    if not kept:
+        return VisionOutcome(
+            failure_code="insufficient_confidence",
+            failure_message="분석 신뢰도가 충분하지 않습니다. 다시 촬영해 주세요.",
+            failure_retryable=True,
+        )
     return VisionOutcome(
         scores={metric: round(score, 2) for metric, (score, _) in kept.items()},
         confidence={metric: round(confidence, 2) for metric, (_, confidence) in kept.items()},
@@ -116,9 +132,8 @@ def _build_outcome(result: VisionAnalysisResult) -> VisionOutcome:
 async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | None:
     """이미지를 분석해 품질 게이트 결과 또는 관찰값을 반환한다.
 
-    분석 자체를 시도할 수 없으면(키 없음·SDK 없음·미지원 형식·호출 실패) None을
-    반환한다 — 이 경우와 "품질 게이트 실패"는 다르다: 전자는 호출부가
-    model_not_implemented로, 후자는 VisionOutcome.failure_code로 구분해서 처리한다.
+    분석 자체를 시도할 수 없으면(키 없음·SDK 없음·미지원 형식) None을 반환한다.
+    모델 타임아웃과 일시적 호출 실패는 재시도 가능한 실패 결과로 반환한다.
     """
     api_key = settings.openai_api_key
     if api_key is None or media_type not in _SUPPORTED_MEDIA_TYPES:
@@ -148,10 +163,34 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
             ],
             text_format=VisionAnalysisResult,
         )
+    except openai.APITimeoutError:
+        return VisionOutcome(
+            failure_code="analysis_timeout",
+            failure_message="분석 시간이 초과되었습니다.",
+            failure_retryable=True,
+        )
     except Exception:
-        return None
+        return VisionOutcome(
+            failure_code="analysis_failed",
+            failure_message="분석을 완료하지 못했습니다.",
+            failure_retryable=True,
+        )
 
     result = response.output_parsed
     if result is None:
-        return None
-    return _build_outcome(result)
+        return VisionOutcome(
+            failure_code="analysis_failed",
+            failure_message="분석을 완료하지 못했습니다.",
+            failure_retryable=True,
+        )
+    outcome = _build_outcome(result)
+    if outcome.failure_code is not None:
+        return outcome
+    return outcome.model_copy(
+        update={
+            "model_provider": VISION_PROVIDER,
+            "model_name": settings.vision_llm_model,
+            "model_version": VISION_MODEL_VERSION,
+            "schema_version": VISION_SCHEMA_VERSION,
+        }
+    )

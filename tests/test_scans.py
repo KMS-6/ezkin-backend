@@ -138,9 +138,8 @@ async def test_idempotency_key_replays_same_scan(
 
 
 async def test_camera_scan_resolves_to_model_not_implemented(
-    client: AsyncClient, persona_headers: dict[str, str]
+    client: AsyncClient, persona_headers: dict[str, str], jpeg_bytes: bytes
 ) -> None:
-    jpeg_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 32
     response = await client.post(
         "/api/v1/skin-scans",
         headers={**persona_headers, "Idempotency-Key": "idem-camera"},
