@@ -33,15 +33,20 @@ def do_run_migrations(connection: Connection) -> None:
     uses_postgresql = connection.dialect.name == "postgresql"
     if uses_postgresql:
         connection.execute(text("SELECT pg_advisory_lock(hashtext('ezkin_alembic_migration'))"))
+        connection.commit()
     try:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
             context.run_migrations()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         if uses_postgresql:
             connection.execute(
                 text("SELECT pg_advisory_unlock(hashtext('ezkin_alembic_migration'))")
             )
+            connection.commit()
 
 
 async def run_async_migrations() -> None:
