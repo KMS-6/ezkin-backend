@@ -11,9 +11,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "skin_scans", sa.Column("idempotency_key", sa.String(length=255), nullable=True)
-    )
+    op.add_column("skin_scans", sa.Column("idempotency_key", sa.String(length=255), nullable=True))
     op.add_column(
         "skin_scans",
         sa.Column("idempotency_payload_hash", sa.String(length=64), nullable=True),
