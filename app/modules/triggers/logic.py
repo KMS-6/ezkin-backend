@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -354,14 +354,16 @@ async def _escalations_today(db: AsyncSession, persona_id: str) -> int:
     경계). settings.chat_llm_daily_cap_per_persona를 넘기면 더 escalate하지 않는다
     — 애매한 메시지가 몰려도 호출이 무한정 늘어나지 않게 막는다.
     """
-    today_start_kst = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = (
+        datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
+    )
     result = await db.execute(
         select(func.count())
         .select_from(SosMessage)
         .where(
             SosMessage.persona_id == persona_id,
             SosMessage.llm_escalated.is_(True),
-            SosMessage.created_at >= today_start_kst,
+            SosMessage.created_at >= today_start_utc,
         )
     )
     return result.scalar_one()

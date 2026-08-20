@@ -5,9 +5,13 @@
 반영하는지를 monkeypatch로 검증한다.
 """
 
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
+
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.sos import SosMessage, SosSession
 from app.modules.triggers import llm_escalation, logic
 from app.modules.triggers.nlu import ParsedMessage
 from tests.conftest import TEST_PERSONA_ID
@@ -22,6 +26,8 @@ _EMPTY_ENTITIES = {
     "food_type": None,
     "time": None,
 }
+
+KST = ZoneInfo("Asia/Seoul")
 
 
 async def test_escalate_parse_returns_none_without_api_key() -> None:
@@ -110,6 +116,35 @@ async def test_escalation_daily_cap_stops_further_llm_calls(
 
     # 상한이 1이라 두 번째 저신뢰 메시지는 escalate_parse를 아예 호출하지 않아야 한다.
     assert call_count == 1
+
+
+async def test_escalations_today_uses_utc_boundary_for_kst_day(
+    db_session: AsyncSession, monkeypatch
+) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = cls(2026, 8, 21, 1, 0, tzinfo=KST)
+            return fixed if tz is None else fixed.astimezone(tz)
+
+    session = SosSession(persona_id=TEST_PERSONA_ID)
+    db_session.add(session)
+    await db_session.flush()
+    db_session.add(
+        SosMessage(
+            session_id=session.id,
+            persona_id=TEST_PERSONA_ID,
+            message="날짜 경계 테스트",
+            reply_type="answer",
+            reply="테스트 응답",
+            llm_escalated=True,
+            created_at=datetime(2026, 8, 20, 16, 0, tzinfo=UTC),
+        )
+    )
+    await db_session.commit()
+    monkeypatch.setattr(logic, "datetime", FrozenDateTime)
+
+    assert await logic._escalations_today(db_session, TEST_PERSONA_ID) == 1
 
 
 async def test_escalation_daily_cap_of_zero_disables_escalation_entirely(
