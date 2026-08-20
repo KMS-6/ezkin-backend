@@ -30,5 +30,5 @@ def test_upgrade_head_on_empty_database(tmp_path) -> None:
             ).fetchall()
         }
 
-    assert current_revision == ("20260818_0009",)
+    assert current_revision == ("20260818_0003",)
     assert {"users", "knowledge_documents", "knowledge_chunks", "knowledge_indexes"} <= tables
