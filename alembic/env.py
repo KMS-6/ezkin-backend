@@ -33,6 +33,7 @@ def do_run_migrations(connection: Connection) -> None:
     uses_postgresql = connection.dialect.name == "postgresql"
     if uses_postgresql:
         connection.execute(text("SELECT pg_advisory_lock(hashtext('ezkin_alembic_migration'))"))
+        connection.commit()
     try:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():
@@ -41,11 +42,15 @@ def do_run_migrations(connection: Connection) -> None:
         # context.begin_transaction()이 이를 "이미 열린 트랜잭션"으로 보고 커밋을 위임만 하고
         # 직접 커밋하지 않는다. 명시적으로 커밋하지 않으면 연결 종료 시 전체가 롤백된다.
         connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         if uses_postgresql:
             connection.execute(
                 text("SELECT pg_advisory_unlock(hashtext('ezkin_alembic_migration'))")
             )
+            connection.commit()
 
 
 async def run_async_migrations() -> None:
