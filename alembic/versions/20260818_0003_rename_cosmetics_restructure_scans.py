@@ -1,7 +1,7 @@
 """ERD에 맞춰 cosmetics와 skin_scans를 정렬하고 문진 답변 테이블을 신설한다.
 
 Revision ID: 20260818_0003
-Revises: 20260816_0002
+Revises: 20260818_0009
 Create Date: 2026-08-18
 """
 

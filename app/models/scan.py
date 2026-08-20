@@ -72,16 +72,13 @@ class SkinScan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     @property
     def confidence(self) -> dict | None:
-        if all(
-            v is None
-            for v in (self.redness_confidence, self.dryness_confidence, self.oiliness_confidence)
-        ):
-            return None
-        return {
+        values = {
             "redness": self.redness_confidence,
             "dryness": self.dryness_confidence,
             "oiliness": self.oiliness_confidence,
         }
+        available = {key: value for key, value in values.items() if value is not None}
+        return available or None
 
     @confidence.setter
     def confidence(self, value: dict | None) -> None:

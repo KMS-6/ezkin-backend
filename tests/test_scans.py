@@ -17,6 +17,13 @@ QUESTIONNAIRE_ANSWERS = json.dumps(
 )
 
 
+def test_scan_confidence_omits_unavailable_metrics() -> None:
+    scan = SkinScan(persona_id="persona_001", capture_method="camera")
+    scan.confidence = {"redness": 0.8}
+
+    assert scan.confidence == {"redness": 0.8}
+
+
 def _uniform_answers(value: str) -> str:
     return json.dumps(
         [
@@ -59,6 +66,39 @@ async def test_questionnaire_scan_completes_with_scores(
     assert result_body["retry_after_seconds"] is None
     # 최근 완료 스캔이 3건 미만이므로 기준선을 계산할 수 없다.
     assert result_body["delta_vs_baseline"] is None
+
+
+async def test_questionnaire_scan_does_not_persist_new_lesions_metric(
+    client: AsyncClient, persona_headers: dict[str, str]
+) -> None:
+    answers = json.dumps(
+        [
+            {"question_id": "redness", "value": "none"},
+            {"question_id": "tightness", "value": "none"},
+            {"question_id": "oiliness", "value": "none"},
+            {"question_id": "new_lesions", "value": "severe"},
+        ]
+    )
+    response = await client.post(
+        "/api/v1/skin-scans",
+        headers={**persona_headers, "Idempotency-Key": "idem-new-lesions"},
+        data={
+            "capture_method": "questionnaire",
+            "captured_at": "2026-08-16T09:00:00Z",
+            "questionnaire_version": "v1",
+            "answers": answers,
+        },
+    )
+    scan_id = response.json()["scan_id"]
+
+    result = await client.get(f"/api/v1/skin-scans/{scan_id}", headers=persona_headers)
+
+    assert result.json()["scores"] == {"redness": 0.0, "dryness": 0.0, "oiliness": 0.0}
+    assert result.json()["confidence"] == {
+        "redness": 0.5,
+        "dryness": 0.5,
+        "oiliness": 0.5,
+    }
 
 
 async def test_delta_vs_baseline_uses_median_of_recent_scans(

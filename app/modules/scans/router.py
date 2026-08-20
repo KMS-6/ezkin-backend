@@ -47,6 +47,7 @@ PersonaId = Annotated[str, Depends(get_persona_id)]
 
 REQUIRED_QUESTIONS = {"redness", "tightness", "oiliness"}
 ALLOWED_QUESTIONS = REQUIRED_QUESTIONS | {"new_lesions"}
+PERSISTED_SCORE_METRICS = {"redness", "dryness", "oiliness"}
 SEVERITY_VALUES = {"none", "mild", "moderate", "severe"}
 
 # delta_vs_baseline은 최근 유효 스캔 중앙값과의 차이. 기준선이 부족하면 null을 반환한다.
@@ -211,7 +212,11 @@ async def create_skin_scan(
             scan.schema_version = outcome.schema_version
     else:
         assert parsed_answers is not None
-        scores = score_questionnaire(parsed_answers)
+        scores = {
+            metric: score
+            for metric, score in score_questionnaire(parsed_answers).items()
+            if metric in PERSISTED_SCORE_METRICS
+        }
         scan.scores = scores
         scan.confidence = dict.fromkeys(scores, 0.5)
         scan.lower_accuracy = True
