@@ -5,10 +5,12 @@ os.environ.setdefault("AAC_AUTH_SECRET", "test-only-auth-secret")
 os.environ.setdefault("AAC_ADMIN_API_KEY", "test-only-admin-key")
 os.environ.setdefault("AAC_PARTNER_API_KEY", "test-only-partner-key")
 
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -91,3 +93,10 @@ async def db_session(
 @pytest.fixture
 def persona_headers() -> dict[str, str]:
     return {"X-Mock-Persona-Id": TEST_PERSONA_ID}
+
+
+@pytest.fixture
+def jpeg_bytes() -> bytes:
+    output = BytesIO()
+    Image.new("RGB", (2, 2), "white").save(output, format="JPEG")
+    return output.getvalue()
