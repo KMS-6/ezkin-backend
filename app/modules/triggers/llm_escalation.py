@@ -99,12 +99,12 @@ def validate_llm_result(result: LLMParseResult, message: str) -> ParsedMessage |
 
 async def escalate_parse(message: str, persona_context: str | None = None) -> ParsedMessage | None:
     """LLM으로 파싱을 보정한다. 키 미설정·SDK 부재·호출 실패 시 None."""
-    api_key = settings.anthropic_api_key
+    api_key = settings.openai_api_key
     if api_key is None:
         return None
 
     try:
-        import anthropic
+        import openai
     except ImportError:
         return None
 
@@ -124,18 +124,23 @@ async def escalate_parse(message: str, persona_context: str | None = None) -> Pa
         few_shot_messages.append({"role": "assistant", "content": expected_json})
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
-        response = await client.with_options(timeout=ESCALATION_TIMEOUT_SECONDS).messages.parse(
+        client = openai.AsyncOpenAI(api_key=api_key.get_secret_value())
+        response = await client.with_options(
+            timeout=ESCALATION_TIMEOUT_SECONDS
+        ).chat.completions.parse(
             model=settings.chat_llm_model,
-            max_tokens=ESCALATION_MAX_TOKENS,
-            system=system_prompt,
-            messages=[*few_shot_messages, {"role": "user", "content": message}],
-            output_format=LLMParseResult,
+            max_completion_tokens=ESCALATION_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                *few_shot_messages,
+                {"role": "user", "content": message},
+            ],
+            response_format=LLMParseResult,
         )
     except Exception:
         return None
 
-    result = response.parsed_output
+    result = response.choices[0].message.parsed
     if result is None:
         return None
     return validate_llm_result(result, message)
