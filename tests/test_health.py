@@ -1,8 +1,11 @@
+from collections.abc import AsyncIterator
+
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.session import get_db
 from app.main import app
 from app.models.metrics import DailyMetric
 from app.models.onboarding import Consent
@@ -14,6 +17,44 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+class _ReadySession:
+    async def execute(self, statement: object) -> None:
+        assert str(statement) == "SELECT 1"
+
+
+class _UnavailableSession:
+    async def execute(self, statement: object) -> None:
+        raise ConnectionError("database unavailable")
+
+
+def test_database_readiness() -> None:
+    async def override_db() -> AsyncIterator[AsyncSession]:
+        yield _ReadySession()  # type: ignore[misc]
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/health/db")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_database_readiness_reports_unavailable_database() -> None:
+    async def override_db() -> AsyncIterator[AsyncSession]:
+        yield _UnavailableSession()  # type: ignore[misc]
+
+    app.dependency_overrides[get_db] = override_db
+    try:
+        response = TestClient(app).get("/health/db")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "database unavailable"}
 
 
 async def test_health_data_persisted_when_apple_health_consented(

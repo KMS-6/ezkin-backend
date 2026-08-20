@@ -1,14 +1,18 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.db.session import get_db
 from app.modules.knowledge.internal_router import router as internal_knowledge_router
 
 OPENAPI_DOCUMENT = Path(__file__).resolve().parent.parent / "docs" / "openapi.yaml"
@@ -55,4 +59,16 @@ async def swagger_ui():
 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/db", tags=["system"])
+async def database_health(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, str]:
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database unavailable",
+        ) from exc
     return {"status": "ok"}

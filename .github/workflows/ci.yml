@@ -17,6 +17,25 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ezkin_test
+          POSTGRES_USER: ezkin
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ezkin -d ezkin_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      AAC_DATABASE_URL: postgresql+asyncpg://ezkin:ci-only-password@localhost:5432/ezkin_test
+      AAC_AUTH_SECRET: ci-only-auth-secret
+      AAC_ADMIN_API_KEY: ci-only-admin-key
+      AAC_PARTNER_API_KEY: ci-only-partner-key
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -26,6 +45,8 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff format --check .
       - run: uv run ruff check .
+      - run: uv run alembic upgrade head
+      - run: uv run alembic current --check-heads
       - run: uv run pytest
 
   deployment-config:
