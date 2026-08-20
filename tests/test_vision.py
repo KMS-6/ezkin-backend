@@ -108,9 +108,7 @@ async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> 
 async def test_analyze_image_maps_timeout_to_retryable_failure(monkeypatch) -> None:
     class FakeMessages:
         async def parse(self, **kwargs):
-            raise anthropic.APITimeoutError(
-                request=httpx.Request("POST", "https://example.test")
-            )
+            raise anthropic.APITimeoutError(request=httpx.Request("POST", "https://example.test"))
 
     class FakeClient:
         messages = FakeMessages()
