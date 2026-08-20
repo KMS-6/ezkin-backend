@@ -34,6 +34,7 @@ from app.modules.scans.schemas import (
     SkinScanModel,
     SkinScanResult,
 )
+from app.modules.scans.vision import analyze_image
 
 router = APIRouter(prefix="/skin-scans", tags=["skin-scans"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -102,6 +103,17 @@ def _median(values: list[float]) -> float:
     if len(ordered) % 2 == 1:
         return ordered[mid]
     return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _compute_delta_vs_previous(
+    scores: dict[str, float], previous: SkinScan | None
+) -> dict[str, float] | None:
+    if not previous or not previous.scores:
+        return None
+    return {
+        metric: round(scores[metric] - previous.scores.get(metric, scores[metric]), 2)
+        for metric in scores
+    }
 
 
 def _compute_delta_vs_baseline(
@@ -184,10 +196,29 @@ async def create_skin_scan(
     if capture_method == "camera":
         assert image_bytes is not None
         scan.image_key = store_bytes(image_bytes, "skin-scans")
-        scan.status = "failed"
-        scan.failure_code = "model_not_implemented"
-        scan.failure_message = "이미지 기반 분석 모델은 아직 연동되지 않았습니다."
-        scan.failure_retryable = False
+        outcome = await analyze_image(image_bytes, image.content_type)
+        if outcome is None:
+            scan.status = "failed"
+            scan.failure_code = "model_not_implemented"
+            scan.failure_message = "이미지 기반 분석 모델은 아직 연동되지 않았습니다."
+            scan.failure_retryable = False
+        elif outcome.failure_code is not None:
+            scan.status = "failed"
+            scan.failure_code = outcome.failure_code
+            scan.failure_message = outcome.failure_message
+            scan.failure_retryable = True
+        else:
+            previous = await _latest_completed_scan(db, persona_id)
+            baseline_history = await _recent_completed_scores(db, persona_id)
+            scan.scores = outcome.scores
+            scan.confidence = outcome.confidence
+            scan.delta_vs_previous = _compute_delta_vs_previous(outcome.scores, previous)
+            scan.delta_vs_baseline = _compute_delta_vs_baseline(outcome.scores, baseline_history)
+            scan.lower_accuracy = True
+            scan.status = "completed"
+            scan.limitation_notice = (
+                "조명·기기 차이에 따라 오차가 있을 수 있는 개인 기준 참고 지표입니다."
+            )
     else:
         assert parsed_answers is not None
         scores = score_questionnaire(parsed_answers)
@@ -195,14 +226,7 @@ async def create_skin_scan(
         baseline_history = await _recent_completed_scores(db, persona_id)
         scan.scores = scores
         scan.confidence = dict.fromkeys(scores, 0.5)
-        scan.delta_vs_previous = (
-            {
-                metric: round(scores[metric] - previous.scores.get(metric, scores[metric]), 2)
-                for metric in scores
-            }
-            if previous and previous.scores
-            else None
-        )
+        scan.delta_vs_previous = _compute_delta_vs_previous(scores, previous)
         scan.delta_vs_baseline = _compute_delta_vs_baseline(scores, baseline_history)
         scan.lower_accuracy = True
         scan.status = "completed"
@@ -241,6 +265,16 @@ async def create_skin_scan(
     return result
 
 
+def _scan_model(scan: SkinScan) -> SkinScanModel | None:
+    if scan.status != "completed":
+        return None
+    if scan.capture_method == "camera":
+        return SkinScanModel(provider="openai", name=settings.vision_llm_model, version="1")
+    # questionnaire 채점(analysis.py::score_questionnaire)은 외부 모델을 쓰지 않는
+    # 규칙 기반 로직이라 실제 모델 메타데이터가 없다.
+    return SkinScanModel(provider="TBD", name="TBD", version="TBD")
+
+
 @router.get("/{scan_id}", response_model=SkinScanResult)
 async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> SkinScanResult:
     scan = await db.get(SkinScan, scan_id)
@@ -259,11 +293,7 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         confidence=scan.confidence,
         delta_vs_baseline=scan.delta_vs_baseline,
         delta_vs_previous=scan.delta_vs_previous,
-        model=(
-            SkinScanModel(provider="TBD", name="TBD", version="TBD")
-            if scan.status == "completed"
-            else None
-        ),
+        model=_scan_model(scan),
         limitation_notice=scan.limitation_notice,
         retry_after_seconds=3 if scan.status == "processing" else None,
         failure=(
