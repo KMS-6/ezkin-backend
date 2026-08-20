@@ -1169,7 +1169,7 @@ components:
       properties:
         period_days: { type: integer, enum: [14, 30] }
         end_date: { type: string, format: date, nullable: true }
-        locale: { type: string, default: ko-KR }
+        locale: { type: string, enum: [ko-KR], default: ko-KR }
     ReportAccepted:
       type: object
       required: [report_id, status, status_url]

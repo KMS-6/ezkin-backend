@@ -1,7 +1,8 @@
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.modules.triggers.schemas import ObservedPattern, PatternWindow, RawFact
 
@@ -19,9 +20,9 @@ class EligibilityResponse(BaseModel):
 
 
 class ReportRequest(BaseModel):
-    period_days: int = Field(default=14, ge=1)
+    period_days: Literal[14, 30] = 14
     end_date: date | None = None
-    locale: str = "ko-KR"
+    locale: Literal["ko-KR"] = "ko-KR"
 
 
 class ReportPeriod(BaseModel):

@@ -9,9 +9,21 @@ from app.db.session import get_db
 from app.main import app
 from app.models.persona import Persona
 from app.models.scan import SkinScan
+from app.modules.reports.schemas import ReportRequest
 
 PERSONA = "persona_a1_seoyeon"
 HEADERS = {"X-Mock-Persona-Id": PERSONA}
+
+
+@pytest.mark.parametrize("period_days", [1, 7, 15, 29, 31])
+def test_report_request_rejects_unsupported_period(period_days: int) -> None:
+    with pytest.raises(ValueError):
+        ReportRequest(period_days=period_days)
+
+
+def test_report_request_rejects_unsupported_locale() -> None:
+    with pytest.raises(ValueError):
+        ReportRequest(period_days=14, locale="en-US")
 
 
 @pytest.fixture()
