@@ -34,7 +34,12 @@ from app.modules.scans.schemas import (
     SkinScanModel,
     SkinScanResult,
 )
-from app.modules.scans.vision import VISION_MODEL_VERSION, VISION_PROVIDER, analyze_image
+from app.modules.scans.vision import (
+    VISION_MODEL_VERSION,
+    VISION_PROVIDER,
+    VISION_SCHEMA_VERSION,
+    analyze_image,
+)
 
 router = APIRouter(prefix="/skin-scans", tags=["skin-scans"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -212,7 +217,7 @@ async def create_skin_scan(
         scan.lower_accuracy = True
         scan.status = "completed"
         scan.completed_at = datetime.now(UTC)
-        scan.schema_version = "skin_observation.v1"
+        scan.schema_version = VISION_SCHEMA_VERSION
 
     db.add(scan)
     await db.flush()
@@ -302,7 +307,9 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         capture_method=scan.capture_method,
         created_at=scan.created_at,
         lower_accuracy=scan.lower_accuracy,
-        schema_version=scan.schema_version if scan.status == "completed" else None,
+        schema_version=(scan.schema_version or VISION_SCHEMA_VERSION)
+        if scan.status == "completed"
+        else None,
         scores=scan.scores,
         confidence=scan.confidence,
         delta_vs_baseline=delta_vs_baseline,

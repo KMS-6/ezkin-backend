@@ -142,6 +142,26 @@ async def test_legacy_completed_camera_scan_falls_back_to_current_model_metadata
     }
 
 
+async def test_completed_legacy_scan_uses_schema_version_fallback(
+    client: AsyncClient, db_session: AsyncSession, persona_headers: dict[str, str]
+) -> None:
+    scan = SkinScan(
+        persona_id="persona_001",
+        capture_method="camera",
+        captured_at=datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        status="completed",
+        schema_version=None,
+    )
+    scan.scores = {"redness": 0.4}
+    db_session.add(scan)
+    await db_session.commit()
+
+    result = await client.get(f"/api/v1/skin-scans/{scan.id}", headers=persona_headers)
+
+    assert result.status_code == 200
+    assert result.json()["schema_version"] == "skin_observation.v1"
+
+
 async def test_idempotency_key_replays_same_scan(
     client: AsyncClient, persona_headers: dict[str, str]
 ) -> None:
