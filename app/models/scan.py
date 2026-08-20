@@ -83,6 +83,13 @@ class SkinScan(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "oiliness": self.oiliness_confidence,
         }
 
+    @confidence.setter
+    def confidence(self, value: dict | None) -> None:
+        value = value or {}
+        self.redness_confidence = value.get("redness")
+        self.dryness_confidence = value.get("dryness")
+        self.oiliness_confidence = value.get("oiliness")
+
     @property
     def failure(self) -> dict | None:
         if self.failure_code is None:

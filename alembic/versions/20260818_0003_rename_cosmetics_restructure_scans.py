@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260818_0003"
-down_revision: str | None = "20260816_0002"
+down_revision: str | None = "20260818_0009"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -20,22 +20,26 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     # 1. cosmetics → user_cosmetics (PostgreSQL이 FK 참조를 자동 갱신)
     op.rename_table("cosmetics", "user_cosmetics")
-    op.execute("ALTER INDEX pk_cosmetics RENAME TO pk_user_cosmetics")
-    op.execute("ALTER INDEX ix_cosmetics_deleted_at RENAME TO ix_user_cosmetics_deleted_at")
-    op.execute("ALTER INDEX ix_cosmetics_user_id RENAME TO ix_user_cosmetics_user_id")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("ALTER INDEX pk_cosmetics RENAME TO pk_user_cosmetics")
+        op.execute("ALTER INDEX ix_cosmetics_deleted_at RENAME TO ix_user_cosmetics_deleted_at")
+        op.execute("ALTER INDEX ix_cosmetics_user_id RENAME TO ix_user_cosmetics_user_id")
 
     # 2. skin_scans: 기존 JSON 컬럼 제거 → 개별 컬럼으로 분리
     op.drop_column("skin_scans", "scores")
-    op.drop_column("skin_scans", "failure")
-    op.drop_column("skin_scans", "questionnaire_answers")
+    op.drop_column("skin_scans", "confidence")
+    op.drop_column("skin_scans", "delta_vs_baseline")
+    op.drop_column("skin_scans", "delta_vs_previous")
+    op.drop_column("skin_scans", "limitation_notice")
+    op.drop_column("skin_scans", "failure_message")
+    op.drop_column("skin_scans", "questionnaire_version")
+    op.drop_column("skin_scans", "answers")
     op.alter_column("skin_scans", "image_key", new_column_name="image_storage_key")
 
     # 3. skin_scans: ERD 기준 누락 컬럼 추가
     op.add_column(
         "skin_scans", sa.Column("image_deleted_at", sa.DateTime(timezone=True), nullable=True)
     )
-    op.add_column("skin_scans", sa.Column("lighting_ok", sa.Boolean(), nullable=True))
-    op.add_column("skin_scans", sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column(
         "skin_scans", sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True)
     )
@@ -46,9 +50,6 @@ def upgrade() -> None:
     op.add_column("skin_scans", sa.Column("redness_confidence", sa.Float(), nullable=True))
     op.add_column("skin_scans", sa.Column("dryness_confidence", sa.Float(), nullable=True))
     op.add_column("skin_scans", sa.Column("oiliness_confidence", sa.Float(), nullable=True))
-
-    op.add_column("skin_scans", sa.Column("failure_code", sa.String(length=50), nullable=True))
-    op.add_column("skin_scans", sa.Column("failure_retryable", sa.Boolean(), nullable=True))
 
     op.add_column("skin_scans", sa.Column("model_provider", sa.String(length=100), nullable=True))
     op.add_column("skin_scans", sa.Column("model_name", sa.String(length=100), nullable=True))
@@ -91,8 +92,6 @@ def downgrade() -> None:
     op.drop_column("skin_scans", "model_version")
     op.drop_column("skin_scans", "model_name")
     op.drop_column("skin_scans", "model_provider")
-    op.drop_column("skin_scans", "failure_retryable")
-    op.drop_column("skin_scans", "failure_code")
     op.drop_column("skin_scans", "oiliness_confidence")
     op.drop_column("skin_scans", "dryness_confidence")
     op.drop_column("skin_scans", "redness_confidence")
@@ -100,15 +99,23 @@ def downgrade() -> None:
     op.drop_column("skin_scans", "dryness_score")
     op.drop_column("skin_scans", "redness_score")
     op.drop_column("skin_scans", "completed_at")
-    op.drop_column("skin_scans", "captured_at")
-    op.drop_column("skin_scans", "lighting_ok")
     op.drop_column("skin_scans", "image_deleted_at")
     op.alter_column("skin_scans", "image_storage_key", new_column_name="image_key")
-    op.add_column("skin_scans", sa.Column("questionnaire_answers", sa.JSON(), nullable=True))
-    op.add_column("skin_scans", sa.Column("failure", sa.JSON(), nullable=True))
+    op.add_column("skin_scans", sa.Column("answers", sa.JSON(), nullable=True))
+    op.add_column(
+        "skin_scans", sa.Column("questionnaire_version", sa.String(length=10), nullable=True)
+    )
+    op.add_column("skin_scans", sa.Column("failure_message", sa.String(length=300), nullable=True))
+    op.add_column(
+        "skin_scans", sa.Column("limitation_notice", sa.String(length=300), nullable=True)
+    )
+    op.add_column("skin_scans", sa.Column("delta_vs_previous", sa.JSON(), nullable=True))
+    op.add_column("skin_scans", sa.Column("delta_vs_baseline", sa.JSON(), nullable=True))
+    op.add_column("skin_scans", sa.Column("confidence", sa.JSON(), nullable=True))
     op.add_column("skin_scans", sa.Column("scores", sa.JSON(), nullable=True))
 
-    op.execute("ALTER INDEX ix_user_cosmetics_user_id RENAME TO ix_cosmetics_user_id")
-    op.execute("ALTER INDEX ix_user_cosmetics_deleted_at RENAME TO ix_cosmetics_deleted_at")
-    op.execute("ALTER INDEX pk_user_cosmetics RENAME TO pk_cosmetics")
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("ALTER INDEX ix_user_cosmetics_user_id RENAME TO ix_cosmetics_user_id")
+        op.execute("ALTER INDEX ix_user_cosmetics_deleted_at RENAME TO ix_cosmetics_deleted_at")
+        op.execute("ALTER INDEX pk_user_cosmetics RENAME TO pk_cosmetics")
     op.rename_table("user_cosmetics", "cosmetics")

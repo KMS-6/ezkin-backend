@@ -34,6 +34,7 @@ from app.modules.scans.schemas import (
     SkinScanModel,
     SkinScanResult,
 )
+from app.modules.scans.vision import analyze_image
 
 router = APIRouter(prefix="/skin-scans", tags=["skin-scans"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -77,37 +78,25 @@ def _parse_answers(raw: str) -> list[dict]:
 
 
 async def _latest_completed_scan(
-    db: AsyncSession, persona_id: str, exclude_scan_id: UUID
+    db: AsyncSession, persona_id: str, exclude_scan_id: UUID | None = None
 ) -> SkinScan | None:
-    result = await db.execute(
-        select(SkinScan)
-        .where(
-            SkinScan.persona_id == persona_id,
-            SkinScan.status == "completed",
-            SkinScan.id != exclude_scan_id,
-        )
-        .order_by(SkinScan.captured_at.desc())
-        .limit(1)
-    )
+    stmt = select(SkinScan).where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
+    if exclude_scan_id is not None:
+        stmt = stmt.where(SkinScan.id != exclude_scan_id)
+    result = await db.execute(stmt.order_by(SkinScan.captured_at.desc()).limit(1))
     return result.scalar_one_or_none()
 
 
 async def _recent_completed_scores(
     db: AsyncSession,
     persona_id: str,
-    exclude_scan_id: UUID,
+    exclude_scan_id: UUID | None = None,
     limit: int = BASELINE_WINDOW,
 ) -> list[dict[str, float]]:
-    result = await db.execute(
-        select(SkinScan)
-        .where(
-            SkinScan.persona_id == persona_id,
-            SkinScan.status == "completed",
-            SkinScan.id != exclude_scan_id,
-        )
-        .order_by(SkinScan.captured_at.desc())
-        .limit(limit)
-    )
+    stmt = select(SkinScan).where(SkinScan.persona_id == persona_id, SkinScan.status == "completed")
+    if exclude_scan_id is not None:
+        stmt = stmt.where(SkinScan.id != exclude_scan_id)
+    result = await db.execute(stmt.order_by(SkinScan.captured_at.desc()).limit(limit))
     return [scan.scores for scan in result.scalars() if scan.scores]
 
 
@@ -197,18 +186,29 @@ async def create_skin_scan(
     if capture_method == "camera":
         assert image_bytes is not None
         scan.image_storage_key = store_bytes(image_bytes, "skin-scans")
-        scan.status = "failed"
-        scan.failure_code = "model_not_implemented"
-        scan.failure_retryable = False
+        outcome = await analyze_image(image_bytes, image.content_type)
+        if outcome is None:
+            scan.status = "failed"
+            scan.failure_code = "model_not_implemented"
+            scan.failure_retryable = False
+        elif outcome.failure_code is not None:
+            scan.status = "failed"
+            scan.failure_code = outcome.failure_code
+            scan.failure_retryable = True
+        else:
+            scan.scores = outcome.scores
+            scan.confidence = outcome.confidence
+            scan.lower_accuracy = True
+            scan.status = "completed"
+            scan.completed_at = datetime.now(UTC)
+            scan.model_provider = "openai"
+            scan.model_name = settings.vision_llm_model
+            scan.model_version = "1"
     else:
         assert parsed_answers is not None
         scores = score_questionnaire(parsed_answers)
-        scan.redness_score = scores.get("redness")
-        scan.dryness_score = scores.get("dryness")
-        scan.oiliness_score = scores.get("oiliness")
-        scan.redness_confidence = 0.5
-        scan.dryness_confidence = 0.5
-        scan.oiliness_confidence = 0.5
+        scan.scores = scores
+        scan.confidence = dict.fromkeys(scores, 0.5)
         scan.lower_accuracy = True
         scan.status = "completed"
         scan.completed_at = datetime.now(UTC)
@@ -253,6 +253,20 @@ async def create_skin_scan(
     return result
 
 
+def _scan_model(scan: SkinScan) -> SkinScanModel | None:
+    if scan.status != "completed":
+        return None
+    if scan.model_provider and scan.model_name and scan.model_version:
+        return SkinScanModel(
+            provider=scan.model_provider,
+            name=scan.model_name,
+            version=scan.model_version,
+        )
+    # questionnaire 채점(analysis.py::score_questionnaire)은 외부 모델을 쓰지 않는
+    # 규칙 기반 로직이라 실제 모델 메타데이터가 없다.
+    return SkinScanModel(provider="TBD", name="TBD", version="TBD")
+
+
 @router.get("/{scan_id}", response_model=SkinScanResult)
 async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> SkinScanResult:
     scan = await db.get(SkinScan, scan_id)
@@ -286,11 +300,7 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         confidence=scan.confidence,
         delta_vs_baseline=delta_vs_baseline,
         delta_vs_previous=delta_vs_previous,
-        model=(
-            SkinScanModel(provider="TBD", name="TBD", version="TBD")
-            if scan.status == "completed"
-            else None
-        ),
+        model=_scan_model(scan),
         limitation_notice=_LIMITATION_NOTICE if scan.status == "completed" else None,
         retry_after_seconds=3 if scan.status == "processing" else None,
         failure=(
