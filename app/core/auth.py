@@ -45,11 +45,15 @@ def _unauthorized() -> HTTPException:
     )
 
 
-def get_current_user_id(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> UUID:
+def try_decode_access_token(credentials: HTTPAuthorizationCredentials | None) -> UUID | None:
+    """`credentials`가 없거나 유효하지 않으면 예외 대신 `None`을 반환한다.
+
+    실사용자 토큰 인증과 X-Mock-Persona-Id 인증을 함께 받아들여야 하는 의존성
+    (`app.core.mock_persona`)에서, 토큰 헤더가 없는 요청을 인증 실패가 아니라
+    "다른 인증 방식 사용"으로 처리하기 위한 용도다.
+    """
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise _unauthorized()
+        return None
 
     try:
         payload_text, signature_text = credentials.credentials.split(".", 1)
@@ -65,4 +69,13 @@ def get_current_user_id(
             raise ValueError
         return UUID(user_id_text)
     except (binascii.Error, ValueError, UnicodeDecodeError):
-        raise _unauthorized() from None
+        return None
+
+
+def get_current_user_id(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> UUID:
+    user_id = try_decode_access_token(credentials)
+    if user_id is None:
+        raise _unauthorized()
+    return user_id
