@@ -11,7 +11,7 @@ from uuid import UUID
 
 import anthropic
 import pytest
-from httpx import AsyncClient, Request
+from httpx import AsyncClient, Request, Response
 from PIL import Image
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,17 +109,37 @@ async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> 
 
 
 @pytest.mark.parametrize(
-    ("error", "expected_code"),
+    ("error", "expected_code", "expected_retryable"),
     [
         (
             anthropic.APITimeoutError(request=Request("POST", "https://api.anthropic.com")),
             "analysis_timeout",
+            True,
         ),
-        (RuntimeError("temporary failure"), "analysis_failed"),
+        (
+            anthropic.APIConnectionError(request=Request("POST", "https://api.anthropic.com")),
+            "analysis_failed",
+            True,
+        ),
+        (
+            anthropic.RateLimitError(
+                "rate limited",
+                response=Response(
+                    429,
+                    request=Request("POST", "https://api.anthropic.com"),
+                ),
+                body=None,
+            ),
+            "analysis_failed",
+            True,
+        ),
     ],
 )
 async def test_analyze_image_classifies_retryable_provider_failures(
-    error: Exception, expected_code: str, monkeypatch
+    error: Exception,
+    expected_code: str,
+    expected_retryable: bool,
+    monkeypatch,
 ) -> None:
     class FakeMessages:
         async def parse(self, **kwargs):
@@ -138,7 +158,40 @@ async def test_analyze_image_classifies_retryable_provider_failures(
 
     assert outcome is not None
     assert outcome.failure_code == expected_code
-    assert outcome.failure_retryable is True
+    assert outcome.failure_retryable is expected_retryable
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        anthropic.AuthenticationError(
+            "invalid key",
+            response=Response(
+                401,
+                request=Request("POST", "https://api.anthropic.com"),
+            ),
+            body=None,
+        ),
+        RuntimeError("unexpected failure"),
+    ],
+)
+async def test_analyze_image_returns_none_for_non_retryable_provider_failures(
+    error: Exception, monkeypatch
+) -> None:
+    class FakeMessages:
+        async def parse(self, **kwargs):
+            raise error
+
+    class FakeClient:
+        messages = FakeMessages()
+
+        def with_options(self, **kwargs):
+            return self
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kwargs: FakeClient())
+
+    assert await analyze_image(_JPEG_BYTES, "image/jpeg") is None
 
 
 def test_build_outcome_returns_scores_when_quality_passes() -> None:

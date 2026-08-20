@@ -28,6 +28,7 @@ CONFIDENCE_THRESHOLD = 0.5
 # Claude Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
 # 이 경로에서는 분석 불가로 취급해 model_not_implemented로 폴백시킨다.
 _SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png"}
+_TRANSIENT_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
 
 # 5.3절 품질 검사 표 순서. 여러 항목이 동시에 실패해도 표 순서상 첫 실패만 사용자에게
 # 안내한다(재촬영 가이드를 한 번에 하나씩만 보여주기 위함).
@@ -176,25 +177,22 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
             failure_message="분석 시간이 초과되었습니다.",
             failure_retryable=True,
         )
-    except (
-        anthropic.InternalServerError,
-        anthropic.OverloadedError,
-        anthropic.RateLimitError,
-        anthropic.APIConnectionError,
-    ):
+    except anthropic.APIConnectionError:
         return VisionOutcome(
             failure_code="analysis_failed",
             failure_message="분석을 완료하지 못했습니다.",
             failure_retryable=True,
         )
-    except anthropic.APIStatusError:
+    except anthropic.APIStatusError as exc:
+        if exc.status_code in _TRANSIENT_STATUS_CODES:
+            return VisionOutcome(
+                failure_code="analysis_failed",
+                failure_message="분석을 완료하지 못했습니다.",
+                failure_retryable=True,
+            )
         return None
     except Exception:
-        return VisionOutcome(
-            failure_code="analysis_failed",
-            failure_message="분석을 완료하지 못했습니다.",
-            failure_retryable=True,
-        )
+        return None
 
     result = response.parsed_output
     if result is None:
