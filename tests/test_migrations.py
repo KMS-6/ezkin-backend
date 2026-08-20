@@ -33,6 +33,6 @@ def test_upgrade_head_on_empty_database(tmp_path) -> None:
             row[1] for row in connection.execute("PRAGMA table_info(skin_scans)").fetchall()
         }
 
-    assert current_revision == ("20260818_0003",)
+    assert current_revision == ("20260821_0010",)
     assert {"users", "knowledge_documents", "knowledge_chunks", "knowledge_indexes"} <= tables
     assert {"model_provider", "model_name", "model_version", "schema_version"} <= scan_columns

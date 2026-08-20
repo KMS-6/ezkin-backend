@@ -65,6 +65,7 @@ class IndexResponse(BaseModel):
     version: str
     is_active: bool
     claim_ids: list[str]
+    claim_versions: dict[str, int]
     chunk_count: int
     created_at: datetime
 

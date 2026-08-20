@@ -52,4 +52,5 @@ class KnowledgeIndex(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     version: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=False)
     claim_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    claim_versions: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
