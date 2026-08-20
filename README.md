@@ -127,7 +127,7 @@ docker build -t ezkin-api:local .
 
 ## 배포
 
-Render는 `develop` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 FastAPI와 PostgreSQL을 배포합니다. 최초 Blueprint 생성, 필수 환경변수, 검증 및 롤백 절차는 [배포 가이드](docs/deployment.md)를 참고합니다.
+Render는 `main` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 FastAPI와 PostgreSQL을 배포합니다. 최초 Blueprint 생성, 필수 환경변수, 검증 및 롤백 절차는 [배포 가이드](docs/deployment.md)를 참고합니다.
 
 배포 전 다음 값을 Render 환경변수에 설정해야 합니다.
 
