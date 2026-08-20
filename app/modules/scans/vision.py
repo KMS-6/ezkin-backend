@@ -176,6 +176,20 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
             failure_message="분석 시간이 초과되었습니다.",
             failure_retryable=True,
         )
+    except (
+        anthropic.InternalServerError,
+        anthropic.ServiceUnavailableError,
+        anthropic.OverloadedError,
+        anthropic.RateLimitError,
+        anthropic.APIConnectionError,
+    ):
+        return VisionOutcome(
+            failure_code="analysis_failed",
+            failure_message="분석을 완료하지 못했습니다.",
+            failure_retryable=True,
+        )
+    except anthropic.APIStatusError:
+        return None
     except Exception:
         return VisionOutcome(
             failure_code="analysis_failed",
