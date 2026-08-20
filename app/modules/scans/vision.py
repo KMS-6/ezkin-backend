@@ -4,7 +4,7 @@
 검증·필터링한다 — 2절 제외 범위("LLM의 독자적 수치 계산 또는 제품명 생성 금지")에
 맞춰 품질 통과 여부와 confidence 임계값 판정은 LLM이 아니라 이 모듈이 최종 결정한다.
 
-API 키가 없거나, SDK가 없거나, 지원하지 않는 이미지 형식(HEIC — OpenAI Vision 미지원)
+API 키가 없거나, SDK가 없거나, 지원하지 않는 이미지 형식(HEIC — Claude Vision 미지원)
 이거나, 호출이 실패·타임아웃되면 예외를 던지지 않고 None을 반환한다 — 호출부는 기존
 model_not_implemented 폴백으로 진행한다(챗봇 llm_escalation.py와 동일한 17절 가용성
 원칙: LLM 장애·부재에도 서비스는 계속 동작해야 한다).
@@ -24,7 +24,7 @@ ANALYSIS_MAX_TOKENS = 500
 # scans/router.py)와 같은 값을 잠정 기준으로 쓴다.
 CONFIDENCE_THRESHOLD = 0.5
 
-# OpenAI Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
+# Claude Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
 # 이 경로에서는 분석 불가로 취급해 model_not_implemented로 폴백시킨다.
 _SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png"}
 
@@ -120,38 +120,45 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
     반환한다 — 이 경우와 "품질 게이트 실패"는 다르다: 전자는 호출부가
     model_not_implemented로, 후자는 VisionOutcome.failure_code로 구분해서 처리한다.
     """
-    api_key = settings.openai_api_key
+    api_key = settings.anthropic_api_key
     if api_key is None or media_type not in _SUPPORTED_MEDIA_TYPES:
         return None
 
     try:
-        import openai
+        import anthropic
     except ImportError:
         return None
 
-    data_url = f"data:{media_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    encoded_image = base64.b64encode(image_bytes).decode("ascii")
 
     try:
-        client = openai.AsyncOpenAI(api_key=api_key.get_secret_value())
-        response = await client.with_options(timeout=ANALYSIS_TIMEOUT_SECONDS).responses.parse(
+        client = anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
+        response = await client.with_options(timeout=ANALYSIS_TIMEOUT_SECONDS).messages.parse(
             model=settings.vision_llm_model,
-            max_output_tokens=ANALYSIS_MAX_TOKENS,
-            instructions=_SYSTEM_PROMPT,
-            input=[
+            max_tokens=ANALYSIS_MAX_TOKENS,
+            system=_SYSTEM_PROMPT,
+            messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "input_text", "text": "이 사진을 분석해 주세요."},
-                        {"type": "input_image", "image_url": data_url, "detail": "auto"},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": encoded_image,
+                            },
+                        },
+                        {"type": "text", "text": "이 사진을 분석해 주세요."},
                     ],
                 }
             ],
-            text_format=VisionAnalysisResult,
+            output_format=VisionAnalysisResult,
         )
     except Exception:
         return None
 
-    result = response.output_parsed
+    result = response.parsed_output
     if result is None:
         return None
     return _build_outcome(result)

@@ -5,8 +5,13 @@
 반영하는지는 monkeypatch로 검증한다.
 """
 
-from httpx import AsyncClient
+from types import SimpleNamespace
 
+import anthropic
+from httpx import AsyncClient
+from pydantic import SecretStr
+
+from app.core.config import settings
 from app.modules.scans import router as scans_router
 from app.modules.scans.vision import (
     VisionAnalysisResult,
@@ -52,6 +57,38 @@ async def test_analyze_image_returns_none_for_unsupported_media_type() -> None:
     result = await analyze_image(_JPEG_BYTES, "image/heic")
 
     assert result is None
+
+
+async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeMessages:
+        async def parse(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(parsed_output=_result())
+
+    class FakeClient:
+        def __init__(self, api_key: str) -> None:
+            captured["api_key"] = api_key
+            self.messages = FakeMessages()
+
+        def with_options(self, **kwargs):
+            captured["options"] = kwargs
+            return self
+
+    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("anthropic-test-key"))
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+
+    outcome = await analyze_image(_JPEG_BYTES, "image/jpeg")
+
+    assert outcome is not None
+    assert captured["api_key"] == "anthropic-test-key"
+    assert captured["model"] == settings.vision_llm_model
+    content = captured["messages"][0]["content"]
+    assert content[0]["type"] == "image"
+    assert content[0]["source"]["type"] == "base64"
+    assert content[0]["source"]["media_type"] == "image/jpeg"
+    assert content[1] == {"type": "text", "text": "이 사진을 분석해 주세요."}
 
 
 def test_build_outcome_returns_scores_when_quality_passes() -> None:
@@ -102,7 +139,11 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
     body = result.json()
     assert body["status"] == "completed"
     assert body["scores"] == {"redness": 0.4, "dryness": 0.2, "oiliness": 0.6}
-    assert body["model"] == {"provider": "openai", "name": "gpt-4o-mini", "version": "1"}
+    assert body["model"] == {
+        "provider": "anthropic",
+        "name": "claude-haiku-4-5",
+        "version": "1",
+    }
     assert body["failure"] is None
 
 

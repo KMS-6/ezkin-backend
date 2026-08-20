@@ -201,7 +201,7 @@ async def create_skin_scan(
             scan.lower_accuracy = True
             scan.status = "completed"
             scan.completed_at = datetime.now(UTC)
-            scan.model_provider = "openai"
+            scan.model_provider = "anthropic"
             scan.model_name = settings.vision_llm_model
             scan.model_version = "1"
     else:
