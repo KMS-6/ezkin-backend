@@ -10,5 +10,5 @@ class Generation(TimestampMixin, Base):
     __tablename__ = "generations"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    persona_id: Mapped[str] = mapped_column(String(30), index=True)
+    persona_id: Mapped[str] = mapped_column(String(36), index=True)
     kind: Mapped[str] = mapped_column(String(30))

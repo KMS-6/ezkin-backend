@@ -14,7 +14,8 @@ class WatchStatus(StrEnum):
 class Persona(TimestampMixin, Base):
     __tablename__ = "personas"
 
-    id: Mapped[str] = mapped_column(String(30), primary_key=True)
+    # 실사용자는 str(User.id)(UUID, 36자)를 그대로 persona_id로 사용한다 (app/core/mock_persona.py).
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
     label: Mapped[str] = mapped_column(String(100))
     summary_traits: Mapped[dict] = mapped_column(JSON)
     watch_status: Mapped[str] = mapped_column(String(20), server_default=WatchStatus.NO_WATCH)

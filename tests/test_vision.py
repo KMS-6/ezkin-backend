@@ -1,17 +1,19 @@
 """Vision AI 이미지 분석(통합_기능_명세서.md `EZkin Vision AI Input` 5절) 검증.
 
-실제 Anthropic API를 호출하지 않는다 — 키 미설정 시의 안전한 폴백은 직접 검증하고,
+실제 OpenAI API를 호출하지 않는다 — 키 미설정 시의 안전한 폴백은 직접 검증하고,
 분석이 성공/품질 실패했다고 가정했을 때 `/skin-scans` 라우터가 결과를 올바르게
 반영하는지는 monkeypatch로 검증한다.
 """
 
+import base64
 from io import BytesIO
 from types import SimpleNamespace
 from uuid import UUID
 
-import anthropic
+import httpx2
+import openai
 import pytest
-from httpx import AsyncClient, Request, Response
+from httpx import AsyncClient
 from PIL import Image
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +40,7 @@ def _jpeg_with_exif() -> bytes:
 
 
 _JPEG_BYTES = _jpeg_with_exif()
+_ENCODED_JPEG = base64.b64encode(_JPEG_BYTES).decode("ascii")
 
 
 def _result(**overrides: object) -> VisionAnalysisResult:
@@ -61,7 +64,7 @@ def _result(**overrides: object) -> VisionAnalysisResult:
 
 
 async def test_analyze_image_returns_none_without_api_key() -> None:
-    # 테스트 환경엔 AAC_ANTHROPIC_API_KEY가 설정돼 있지 않다(tests/conftest.py 참고) —
+    # 테스트 환경엔 AAC_OPENAI_API_KEY가 설정돼 있지 않다(tests/conftest.py 참고) —
     # 이 경우 네트워크 호출을 전혀 시도하지 않고 즉시 None을 반환해야 한다.
     result = await analyze_image(_JPEG_BYTES, "image/jpeg")
 
@@ -69,42 +72,47 @@ async def test_analyze_image_returns_none_without_api_key() -> None:
 
 
 async def test_analyze_image_returns_none_for_unsupported_media_type() -> None:
-    # HEIC는 업로드는 허용되지만(5.2절) Claude Vision이 지원하지 않는 형식이라
+    # HEIC는 업로드는 허용되지만(5.2절) OpenAI Vision이 지원하지 않는 형식이라
     # 분석을 시도조차 하지 않는다.
     result = await analyze_image(_JPEG_BYTES, "image/heic")
 
     assert result is None
 
 
-async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> None:
+async def test_analyze_image_uses_openai_key_and_image_input(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    class FakeMessages:
+    class FakeCompletions:
         async def parse(self, **kwargs):
             captured.update(kwargs)
-            return SimpleNamespace(parsed_output=_result())
+            message = SimpleNamespace(parsed=_result())
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    class FakeChat:
+        def __init__(self) -> None:
+            self.completions = FakeCompletions()
 
     class FakeClient:
         def __init__(self, api_key: str) -> None:
             captured["api_key"] = api_key
-            self.messages = FakeMessages()
+            self.chat = FakeChat()
 
         def with_options(self, **kwargs):
             captured["options"] = kwargs
             return self
 
-    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("anthropic-test-key"))
-    monkeypatch.setattr(anthropic, "AsyncAnthropic", FakeClient)
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("openai-test-key"))
+    monkeypatch.setattr(openai, "AsyncOpenAI", FakeClient)
 
     outcome = await analyze_image(_JPEG_BYTES, "image/jpeg")
 
     assert outcome is not None
-    assert captured["api_key"] == "anthropic-test-key"
+    assert captured["api_key"] == "openai-test-key"
     assert captured["model"] == settings.vision_llm_model
-    content = captured["messages"][0]["content"]
-    assert content[0]["type"] == "image"
-    assert content[0]["source"]["type"] == "base64"
-    assert content[0]["source"]["media_type"] == "image/jpeg"
+    assert captured["messages"][0]["role"] == "system"
+    content = captured["messages"][1]["content"]
+    assert content[0]["type"] == "image_url"
+    assert content[0]["image_url"]["url"] == f"data:image/jpeg;base64,{_ENCODED_JPEG}"
     assert content[1] == {"type": "text", "text": "이 사진을 분석해 주세요."}
 
 
@@ -112,21 +120,21 @@ async def test_analyze_image_uses_anthropic_key_and_image_input(monkeypatch) -> 
     ("error", "expected_code", "expected_retryable"),
     [
         (
-            anthropic.APITimeoutError(request=Request("POST", "https://api.anthropic.com")),
+            openai.APITimeoutError(request=httpx2.Request("POST", "https://api.openai.com")),
             "analysis_timeout",
             True,
         ),
         (
-            anthropic.APIConnectionError(request=Request("POST", "https://api.anthropic.com")),
+            openai.APIConnectionError(request=httpx2.Request("POST", "https://api.openai.com")),
             "analysis_failed",
             True,
         ),
         (
-            anthropic.RateLimitError(
+            openai.RateLimitError(
                 "rate limited",
-                response=Response(
+                response=httpx2.Response(
                     429,
-                    request=Request("POST", "https://api.anthropic.com"),
+                    request=httpx2.Request("POST", "https://api.openai.com"),
                 ),
                 body=None,
             ),
@@ -141,18 +149,21 @@ async def test_analyze_image_classifies_retryable_provider_failures(
     expected_retryable: bool,
     monkeypatch,
 ) -> None:
-    class FakeMessages:
+    class FakeCompletions:
         async def parse(self, **kwargs):
             raise error
 
+    class FakeChat:
+        completions = FakeCompletions()
+
     class FakeClient:
-        messages = FakeMessages()
+        chat = FakeChat()
 
         def with_options(self, **kwargs):
             return self
 
-    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("test-key"))
-    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(openai, "AsyncOpenAI", lambda **kwargs: FakeClient())
 
     outcome = await analyze_image(_JPEG_BYTES, "image/jpeg")
 
@@ -164,11 +175,11 @@ async def test_analyze_image_classifies_retryable_provider_failures(
 @pytest.mark.parametrize(
     "error",
     [
-        anthropic.AuthenticationError(
+        openai.AuthenticationError(
             "invalid key",
-            response=Response(
+            response=httpx2.Response(
                 401,
-                request=Request("POST", "https://api.anthropic.com"),
+                request=httpx2.Request("POST", "https://api.openai.com"),
             ),
             body=None,
         ),
@@ -178,18 +189,21 @@ async def test_analyze_image_classifies_retryable_provider_failures(
 async def test_analyze_image_returns_none_for_non_retryable_provider_failures(
     error: Exception, monkeypatch
 ) -> None:
-    class FakeMessages:
+    class FakeCompletions:
         async def parse(self, **kwargs):
             raise error
 
+    class FakeChat:
+        completions = FakeCompletions()
+
     class FakeClient:
-        messages = FakeMessages()
+        chat = FakeChat()
 
         def with_options(self, **kwargs):
             return self
 
-    monkeypatch.setattr(settings, "anthropic_api_key", SecretStr("test-key"))
-    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("test-key"))
+    monkeypatch.setattr(openai, "AsyncOpenAI", lambda **kwargs: FakeClient())
 
     assert await analyze_image(_JPEG_BYTES, "image/jpeg") is None
 
@@ -244,8 +258,8 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
         return VisionOutcome(
             scores={"redness": 0.4, "dryness": 0.2, "oiliness": 0.6},
             confidence={"redness": 0.8, "dryness": 0.8, "oiliness": 0.8},
-            model_provider="anthropic",
-            model_name="claude-haiku-4-5",
+            model_provider="openai",
+            model_name="gpt-5.4-mini",
             model_version="1",
             schema_version="skin_observation.v1",
         )
@@ -266,8 +280,8 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
     assert body["lower_accuracy"] is False
     assert body["scores"] == {"redness": 0.4, "dryness": 0.2, "oiliness": 0.6}
     assert body["model"] == {
-        "provider": "anthropic",
-        "name": "claude-haiku-4-5",
+        "provider": "openai",
+        "name": "gpt-5.4-mini",
         "version": "1",
     }
     assert body["failure"] is None
@@ -275,11 +289,11 @@ async def test_camera_scan_completes_when_vision_analysis_succeeds(
     scan = await db_session.get(SkinScan, UUID(scan_id))
     assert scan is not None
     assert scan.image_storage_key is None
-    assert scan.model_name == "claude-haiku-4-5"
+    assert scan.model_name == "gpt-5.4-mini"
 
     monkeypatch.setattr(settings, "vision_llm_model", "replacement-model")
     repeated = await client.get(f"/api/v1/skin-scans/{scan_id}", headers=persona_headers)
-    assert repeated.json()["model"]["name"] == "claude-haiku-4-5"
+    assert repeated.json()["model"]["name"] == "gpt-5.4-mini"
 
 
 async def test_camera_scan_fails_with_specific_code_when_quality_gate_fails(

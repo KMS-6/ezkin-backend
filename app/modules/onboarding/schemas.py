@@ -18,6 +18,8 @@ class OnboardingProfileIn(BaseModel):
     skin_concern_ids: list[str] = Field(default_factory=list)
     birth_year: int | None = None
     menstrual_cycle_tracking: bool | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class OnboardingProfileResponse(BaseModel):

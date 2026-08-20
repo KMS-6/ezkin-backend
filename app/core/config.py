@@ -21,17 +21,21 @@ class Settings(BaseSettings):
     idempotency_ttl_hours: int = Field(default=24, gt=0)
     # 챗봇 10.2/10.5절: parse_confidence < 0.60일 때만 쓰는 저비용 LLM escalation.
     # 키가 없으면 기능이 조용히 꺼지고 규칙 기반 결과로만 동작한다(17절 가용성 원칙).
-    anthropic_api_key: SecretStr | None = None
-    chat_llm_model: str = "claude-haiku-4-5"
-    # Vision AI Input 5절: 카메라 스캔 관찰값 생성용 멀티모달 모델. Anthropic 키가
+    openai_api_key: SecretStr | None = None
+    chat_llm_model: str = "gpt-5.4-mini"
+    # Vision AI Input 5절: 카메라 스캔 관찰값 생성용 멀티모달 모델. OpenAI 키가
     # 없으면 기능이 조용히 꺼지고 기존 model_not_implemented 폴백으로 동작한다.
-    vision_llm_model: str = "claude-haiku-4-5"
+    vision_llm_model: str = "gpt-5.4-mini"
     # 페르소나당 하루 escalation 호출 상한 — 애매한 메시지가 몰려도 비용이 무한정
     # 늘어나지 않게 막는 안전장치. 초과하면 escalation 없이 규칙 기반 결과로 폴백한다.
     chat_llm_daily_cap_per_persona: int = Field(default=20, ge=0)
     # Report/Briefing 5.7/5.8절: 계산된 사실만 재문장화하는 선택적 LLM. Anthropic 키가
     # 없으면 기능이 조용히 꺼지고 규칙 기반 템플릿 summary로만 동작한다.
-    narration_llm_model: str = "claude-haiku-4-5"
+    narration_llm_model: str = "gpt-5.4-mini"
+    # ADR 003: 기상청 공공데이터포털 연동. 키가 없거나 호출이 실패하면 조용히
+    # 꺼지고 기존처럼 날씨 요인이 생략된다(임의 날씨 생성 금지).
+    weather_api_key: SecretStr | None = None
+    weather_cache_ttl_minutes: int = Field(default=60, gt=0)
 
     @field_validator("database_url")
     @classmethod
