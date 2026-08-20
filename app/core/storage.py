@@ -3,7 +3,7 @@ from io import BytesIO
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.config import settings
 
@@ -55,7 +55,7 @@ async def read_and_validate_image(file: UploadFile) -> bytes:
 
     try:
         with Image.open(BytesIO(content)) as image:
-            image.load()
+            image = ImageOps.exif_transpose(image)
             output = BytesIO()
             if extension == "jpg":
                 image.convert("RGB").save(output, format="JPEG")
