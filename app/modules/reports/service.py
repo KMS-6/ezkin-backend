@@ -18,7 +18,7 @@ async def get_eligibility(
     persona_id: str,
     period_days: int,
 ) -> dict[str, Any]:
-    as_of = date.today()
+    as_of = datetime.now(UTC).date()
     return await check_eligibility(db, persona_id, period_days, as_of)
 
 
@@ -28,7 +28,7 @@ async def create_report(
     period_days: int,
     end_date: date | None = None,
 ) -> Report:
-    as_of = end_date or date.today()
+    as_of = end_date or datetime.now(UTC).date()
     eligibility = await check_eligibility(db, persona_id, period_days, as_of)
 
     if not eligibility["eligible"]:

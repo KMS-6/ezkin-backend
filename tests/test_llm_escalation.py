@@ -39,7 +39,7 @@ async def test_escalate_parse_returns_none_without_api_key() -> None:
 async def test_low_confidence_message_uses_escalated_intent_and_entities(
     client: AsyncClient, persona_headers: dict[str, str], monkeypatch
 ) -> None:
-    async def fake_escalate(message: str) -> ParsedMessage:
+    async def fake_escalate(message: str, persona_context: str | None = None) -> ParsedMessage:
         return ParsedMessage(
             intent="skin_trouble",
             entities={**_EMPTY_ENTITIES, "body_area": "chin"},
@@ -78,7 +78,7 @@ def test_validate_llm_result_rejects_out_of_enum_intent() -> None:
 async def test_escalation_failure_falls_back_to_rule_based_clarification(
     client: AsyncClient, persona_headers: dict[str, str], monkeypatch
 ) -> None:
-    async def failing_escalate(message: str) -> None:
+    async def failing_escalate(message: str, persona_context: str | None = None) -> None:
         return None
 
     monkeypatch.setattr(logic, "escalate_parse", failing_escalate)
@@ -97,7 +97,7 @@ async def test_escalation_daily_cap_stops_further_llm_calls(
 ) -> None:
     call_count = 0
 
-    async def fake_escalate(message: str) -> ParsedMessage:
+    async def fake_escalate(message: str, persona_context: str | None = None) -> ParsedMessage:
         nonlocal call_count
         call_count += 1
         return ParsedMessage(
@@ -136,7 +136,7 @@ async def test_escalation_daily_cap_stops_further_llm_calls(
 async def test_escalation_daily_cap_of_zero_disables_escalation_entirely(
     client: AsyncClient, persona_headers: dict[str, str], monkeypatch
 ) -> None:
-    async def fake_escalate(message: str) -> ParsedMessage:
+    async def fake_escalate(message: str, persona_context: str | None = None) -> ParsedMessage:
         raise AssertionError("cap=0이면 escalate_parse가 아예 호출되면 안 된다")
 
     monkeypatch.setattr(logic, "escalate_parse", fake_escalate)
@@ -154,7 +154,7 @@ async def test_compute_chat_metrics_reflects_successful_escalation(
     db_session: AsyncSession,
     monkeypatch,
 ) -> None:
-    async def fake_escalate(message: str) -> ParsedMessage:
+    async def fake_escalate(message: str, persona_context: str | None = None) -> ParsedMessage:
         return ParsedMessage(
             intent="skin_condition",
             entities=_EMPTY_ENTITIES,
