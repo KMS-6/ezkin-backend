@@ -7,6 +7,7 @@ from app.models.metrics import DailyMetric
 from app.models.onboarding import Consent
 from app.models.scan import SkinScan
 from app.models.weather import WeatherSnapshot
+from app.modules.weather.service import get_or_fetch_weather
 
 RISK_LEVELS = ["low", "moderate", "high", "very_high"]
 IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal"}
@@ -143,14 +144,13 @@ def _as_naive_utc(value: datetime) -> datetime:
 async def load_latest_weather(
     db: AsyncSession, persona_id: str, now: datetime, max_age_hours: int = 6
 ) -> WeatherSnapshot | None:
-    """4.1/5절: 생성 시점 기준 max_age_hours 이내 관측만 사용하고, 오래됐으면 제외한다."""
-    result = await db.execute(
-        select(WeatherSnapshot)
-        .where(WeatherSnapshot.persona_id == persona_id)
-        .order_by(WeatherSnapshot.observed_at.desc())
-        .limit(1)
-    )
-    snapshot = result.scalar_one_or_none()
+    """4.1/5절: 생성 시점 기준 max_age_hours 이내 관측만 사용하고, 오래됐으면 제외한다.
+
+    ADR 003: 조회 자체는 weather.service.get_or_fetch_weather가 담당한다(TTL 캐시
+    이내면 캐시 재사용, 아니면 기상청 API 호출). 여기서는 기존과 동일하게
+    max_age_hours보다 오래된 관측치만 걸러낸다.
+    """
+    snapshot = await get_or_fetch_weather(db, persona_id, now)
     if snapshot is None:
         return None
     if _as_naive_utc(now) - _as_naive_utc(snapshot.observed_at) > timedelta(hours=max_age_hours):

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Report/Briefing 5.7/5.8절: 계산된 사실만 재문장화하는 선택적 LLM. Anthropic 키가
     # 없으면 기능이 조용히 꺼지고 규칙 기반 템플릿 summary로만 동작한다.
     narration_llm_model: str = "claude-haiku-4-5"
+    # ADR 003: 기상청 공공데이터포털 연동. 키가 없거나 호출이 실패하면 조용히
+    # 꺼지고 기존처럼 날씨 요인이 생략된다(임의 날씨 생성 금지).
+    weather_api_key: SecretStr | None = None
+    weather_cache_ttl_minutes: int = Field(default=60, gt=0)
 
     @field_validator("database_url")
     @classmethod
