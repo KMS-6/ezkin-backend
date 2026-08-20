@@ -12,7 +12,7 @@ from app.models.persona import Persona
 from app.models.scan import SkinScan
 from app.models.sos import SosMessage
 from app.modules.knowledge.matching import find_claim
-from app.modules.risk.logic import load_today_risk_context
+from app.modules.risk.logic import HIGH_SCORE_THRESHOLD, load_today_risk_context
 from app.modules.triggers.faq_data import FAQ_ENTRIES
 from app.modules.triggers.llm_escalation import escalate_parse
 from app.modules.triggers.nlu import BODY_AREA_ALIASES, INGREDIENT_ALIASES, parse_message
@@ -20,7 +20,8 @@ from app.modules.triggers.nlu import BODY_AREA_ALIASES, INGREDIENT_ALIASES, pars
 PATTERN_WINDOW_HOURS = 72
 PATTERN_HISTORY_DAYS = 90
 IRRITATING_DIET_FLAGS = {"spicy", "late_night_meal"}
-ELEVATED_THRESHOLD = 0.66
+# risk/logic.py::HIGH_SCORE_THRESHOLD와 동일한 값을 공유한다(단일 소스).
+ELEVATED_THRESHOLD = HIGH_SCORE_THRESHOLD
 MIN_SAMPLE_SIZE = 3
 
 KST = ZoneInfo("Asia/Seoul")

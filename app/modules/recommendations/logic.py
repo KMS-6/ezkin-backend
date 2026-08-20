@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.onboarding import OnboardingProfile
 from app.models.recommendation import Product
 from app.models.scan import SkinScan
+from app.modules.risk.logic import HIGH_SCORE_THRESHOLD
 
 CONCERN_TO_CATEGORY = {
     "cn_dryness": "moisturizer",
@@ -16,7 +17,8 @@ METRIC_TO_CATEGORY = {
     "redness": "serum",
     "oiliness": "toner",
 }
-ELEVATED_THRESHOLD = 0.66
+# risk/logic.py::HIGH_SCORE_THRESHOLD와 동일한 값을 공유한다(단일 소스).
+ELEVATED_THRESHOLD = HIGH_SCORE_THRESHOLD
 
 
 async def build_recommendations(db: AsyncSession, persona_id: str) -> list[dict]:
