@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.scan import SkinScan
+from app.modules.scans.vision import VISION_MODEL_VERSION, VISION_PROVIDER
 
 QUESTIONNAIRE_ANSWERS = json.dumps(
     [
@@ -113,6 +115,31 @@ async def test_processing_scan_returns_retry_after_seconds(
     assert body["schema_version"] is None
     assert body["model"] is None
     assert body["confidence"] is None
+
+
+async def test_legacy_completed_camera_scan_falls_back_to_current_model_metadata(
+    client: AsyncClient, db_session: AsyncSession, persona_headers: dict[str, str]
+) -> None:
+    scan = SkinScan(
+        persona_id="persona_001",
+        capture_method="camera",
+        captured_at=datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        status="completed",
+        completed_at=datetime(2026, 8, 16, 9, 1, tzinfo=UTC),
+        schema_version="skin_observation.v1",
+        scores={"redness": 0.5, "dryness": 0.5, "oiliness": 0.5},
+        confidence={"redness": 0.8, "dryness": 0.8, "oiliness": 0.8},
+    )
+    db_session.add(scan)
+    await db_session.commit()
+
+    result = await client.get(f"/api/v1/skin-scans/{scan.id}", headers=persona_headers)
+    assert result.status_code == 200
+    assert result.json()["model"] == {
+        "provider": VISION_PROVIDER,
+        "name": settings.vision_llm_model,
+        "version": VISION_MODEL_VERSION,
+    }
 
 
 async def test_idempotency_key_replays_same_scan(

@@ -34,7 +34,7 @@ from app.modules.scans.schemas import (
     SkinScanModel,
     SkinScanResult,
 )
-from app.modules.scans.vision import analyze_image
+from app.modules.scans.vision import VISION_MODEL_VERSION, VISION_PROVIDER, analyze_image
 
 router = APIRouter(prefix="/skin-scans", tags=["skin-scans"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -262,6 +262,12 @@ def _scan_model(scan: SkinScan) -> SkinScanModel | None:
             provider=scan.model_provider,
             name=scan.model_name,
             version=scan.model_version,
+        )
+    if scan.capture_method == "camera":
+        return SkinScanModel(
+            provider=scan.model_provider or VISION_PROVIDER,
+            name=scan.model_name or settings.vision_llm_model,
+            version=scan.model_version or VISION_MODEL_VERSION,
         )
     # questionnaire 채점(analysis.py::score_questionnaire)은 외부 모델을 쓰지 않는
     # 규칙 기반 로직이라 실제 모델 메타데이터가 없다.
