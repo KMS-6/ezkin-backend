@@ -48,8 +48,12 @@ forbidden_expressions: "수면 부족 때문에 트러블이 생겼어요. / 수
 로컬 Postgres(`docker compose up -d db` → `alembic upgrade head`)에서 직접 확인함.
 
 ```python
-await find_claim(db, feature="briefing", topic="sleep",
-                  facts={"sleep_hours_available", "sleep_below_personal_baseline_or_threshold"})
+await find_claim(
+    db,
+    feature="briefing",
+    topic="sleep",
+    facts={"sleep_hours_available", "sleep_below_personal_baseline_or_threshold"},
+)
 # => ClaimMatch(claim_id='claim_sleep_barrier_001', version=1, sentence='...')
 
 await keyword_search(db, ["수면", "TEWL"], limit=5)
