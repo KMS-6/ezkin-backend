@@ -36,28 +36,32 @@ async def narrate_briefing(
 ) -> str | None:
     """LLM으로 Briefing summary를 재문장화한다. 키 미설정·SDK 부재·호출 실패·안전 필터
     실패 시 None."""
-    api_key = settings.anthropic_api_key
+    api_key = settings.openai_api_key
     if api_key is None:
         return None
 
     try:
-        import anthropic
+        import openai
     except ImportError:
         return None
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
-        response = await client.with_options(timeout=NARRATION_TIMEOUT_SECONDS).messages.parse(
+        client = openai.AsyncOpenAI(api_key=api_key.get_secret_value())
+        response = await client.with_options(
+            timeout=NARRATION_TIMEOUT_SECONDS
+        ).chat.completions.parse(
             model=settings.narration_llm_model,
-            max_tokens=NARRATION_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _facts_prompt(factors, common_knowledge)}],
-            output_format=BriefingNarrationResult,
+            max_completion_tokens=NARRATION_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": _facts_prompt(factors, common_knowledge)},
+            ],
+            response_format=BriefingNarrationResult,
         )
     except Exception:
         return None
 
-    result = response.parsed_output
+    result = response.choices[0].message.parsed
     if result is None or not result.summary.strip():
         return None
     if not is_safe(result.summary):

@@ -30,6 +30,10 @@ services:
         value: "86400"
       - key: AAC_ADMIN_KEY
         sync: false
+      - key: AAC_OPENAI_API_KEY
+        sync: false
+      - key: AAC_VISION_LLM_MODEL
+        sync: false
 
 databases:
   - name: ezkin-db

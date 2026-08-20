@@ -25,6 +25,15 @@ ADMIN_HEADERS = {"X-Admin-Key": "test-only-admin-key"}
 PARTNER_HEADERS = {"X-Partner-Key": "test-only-partner-key"}
 
 
+@pytest.fixture(autouse=True)
+def _no_llm_api_key_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """로컬 `.env`에 실제 OpenAI 키가 설정돼 있어도 테스트는 항상 키 미설정 상태로
+    격리한다 — 그렇지 않으면 챗봇 escalation/Vision/narration 테스트가 실제 OpenAI API를
+    호출하는 비결정적 테스트가 된다. 개별 테스트는 자체 monkeypatch로 이 값을 덮어써
+    가짜 키를 주입한다."""
+    monkeypatch.setattr(settings, "openai_api_key", None)
+
+
 @pytest.fixture
 async def _session_factory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

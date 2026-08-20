@@ -1,6 +1,6 @@
 """6단계 검증: 저신뢰도 파싱 LLM escalation(기능명세서_chatbot.md 10.2절 4단계).
 
-실제 Anthropic API를 호출하지 않는다 — 키 미설정 시의 안전한 폴백과, escalate_parse가
+실제 OpenAI API를 호출하지 않는다 — 키 미설정 시의 안전한 폴백과, escalate_parse가
 성공했다고 가정했을 때 build_chat_reply/compute_chat_metrics가 그 결과를 올바르게
 반영하는지를 monkeypatch로 검증한다.
 """
@@ -29,7 +29,7 @@ _EMPTY_ENTITIES = {
 
 
 async def test_escalate_parse_returns_none_without_api_key() -> None:
-    # 테스트 환경엔 AAC_ANTHROPIC_API_KEY가 설정돼 있지 않다(tests/conftest.py 참고) —
+    # 테스트 환경엔 AAC_OPENAI_API_KEY가 설정돼 있지 않다(tests/conftest.py 참고) —
     # 이 경우 네트워크 호출을 전혀 시도하지 않고 즉시 None을 반환해야 한다.
     result = await llm_escalation.escalate_parse("아무 메시지")
 
