@@ -52,6 +52,8 @@ async def save_onboarding_profile(
     profile.skin_concern_ids = payload.skin_concern_ids
     profile.birth_year = payload.birth_year
     profile.menstrual_cycle_tracking = payload.menstrual_cycle_tracking
+    profile.latitude = payload.latitude
+    profile.longitude = payload.longitude
     profile.onboarding_completed = True
     await db.commit()
     return OnboardingProfileResponse(onboarding_completed=True)
