@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.generation import Generation
 from app.models.report import Report
 from app.modules.reports.aggregator import check_eligibility
+from app.modules.reports.knowledge import select_report_common_knowledge
+from app.modules.reports.narration import narrate_report
 from app.modules.reports.safety import is_safe
 from app.modules.risk.logic import build_report_content
 
@@ -66,6 +68,13 @@ async def _process_report(
 ) -> None:
     """리포트를 집계하고 결과를 저장한다(evidence_ids 기반, API명세서.md 기능 2절)."""
     content = await build_report_content(db, persona_id, period_days, as_of)
+    common_knowledge = await select_report_common_knowledge(
+        db, persona_id, report.start_date, as_of
+    )
+
+    narrated_summary = await narrate_report(content)
+    if narrated_summary is not None:
+        content["summary"] = narrated_summary
 
     all_texts = (
         [content["summary"]]
@@ -86,6 +95,7 @@ async def _process_report(
         "patterns": content["patterns"],
         "recommendations": content["recommendations"],
         "limitations": content["limitations"],
+        "common_knowledge": common_knowledge,
     }
 
     report.status = "completed"
