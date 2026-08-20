@@ -57,7 +57,7 @@ def _dt(d: date) -> datetime:
 
 async def _seed_scans(db: AsyncSession, persona_id: str, count: int, base: date | None = None):
     if base is None:
-        base = date.today()
+        base = datetime.now(UTC).date()
     for i in range(count):
         d = base - __import__("datetime").timedelta(days=i)
         db.add(
