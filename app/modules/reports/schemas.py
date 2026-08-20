@@ -42,6 +42,13 @@ class ReportEvidence(BaseModel):
     evidence_ids: list[str]
 
 
+class ReportClaim(BaseModel):
+    claim_id: str
+    version: int
+    sentence: str
+    topic: str
+
+
 class ReportResult(BaseModel):
     report_id: UUID
     status: str
@@ -51,6 +58,7 @@ class ReportResult(BaseModel):
     patterns: list[ReportEvidence]
     recommendations: list[ReportEvidence]
     limitations: str
+    common_knowledge: list[ReportClaim] = []
     safety_status: str
     generated_at: datetime | None = None
 

@@ -324,7 +324,7 @@ async def build_report_content(
         "observations": observations,
         "patterns": patterns,
         "recommendations": recommendations,
-        "limitations": "의료적 진단이 아닌 참고 정보이며, 공통 지식(RAG) 근거는 미연동입니다.",
+        "limitations": "의료적 진단이 아닌 참고 정보입니다.",
         # 명세서상 고정값: 이 리포트는 의료적 진단이 아닌 웰니스 참고 정보임을 나타내는 상수.
         "safety_status": "wellness_only",
     }

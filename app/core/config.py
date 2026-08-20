@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # 페르소나당 하루 escalation 호출 상한 — 애매한 메시지가 몰려도 비용이 무한정
     # 늘어나지 않게 막는 안전장치. 초과하면 escalation 없이 규칙 기반 결과로 폴백한다.
     chat_llm_daily_cap_per_persona: int = Field(default=20, ge=0)
+    # Report/Briefing 5.7/5.8절: 계산된 사실만 재문장화하는 선택적 LLM. Anthropic 키가
+    # 없으면 기능이 조용히 꺼지고 규칙 기반 템플릿 summary로만 동작한다.
+    narration_llm_model: str = "claude-haiku-4-5"
 
     @field_validator("database_url")
     @classmethod
