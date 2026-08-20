@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.modules.risk.logic import LOW_HUMIDITY_THRESHOLD, UV_HIGH_THRESHOLD
+
 
 class CareMode(StrEnum):
     BASIC = "basic"
@@ -20,8 +22,8 @@ class CareInputs:
 def select_care_mode(inputs: CareInputs) -> CareMode:
     if inputs.user_reports_discomfort:
         return CareMode.MINIMAL_ROUTINE
-    if inputs.uv_index is not None and inputs.uv_index >= 6:
+    if inputs.uv_index is not None and inputs.uv_index >= UV_HIGH_THRESHOLD:
         return CareMode.UV_FOCUSED
-    if inputs.humidity is not None and inputs.humidity < 40:
+    if inputs.humidity is not None and inputs.humidity < LOW_HUMIDITY_THRESHOLD:
         return CareMode.MOISTURE_FOCUSED
     return CareMode.BASIC

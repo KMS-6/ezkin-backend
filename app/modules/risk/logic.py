@@ -280,7 +280,7 @@ async def build_report_content(
                         (sum(second_half) / len(second_half)) - (sum(first_half) / len(first_half)),
                         2,
                     )
-                    if abs(delta) >= 0.15:
+                    if abs(delta) >= SCAN_DELTA_THRESHOLD:
                         direction = "증가" if delta > 0 else "감소"
                         patterns.append(
                             {

@@ -1,7 +1,7 @@
 """onboarding_profile 위치 필드 추가
 
-Revision ID: 20260821_0014
-Revises: 20260821_0013
+Revision ID: 20260821_0018
+Revises: 20260821_0017
 Create Date: 2026-08-21
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "20260821_0014"
-down_revision: str | None = "20260821_0013"
+revision: str = "20260821_0018"
+down_revision: str | None = "20260821_0017"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

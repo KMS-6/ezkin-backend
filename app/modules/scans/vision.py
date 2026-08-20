@@ -6,17 +6,24 @@
 
 API 키가 없거나 SDK가 없거나 지원하지 않는 이미지 형식이면 None을 반환한다. 일시적인
 호출 실패와 타임아웃은 재시도 가능한 실패 결과로 구분한다.
+
+응답 계약(`failure_code`)은 항상 `model_not_implemented`로 뭉뚱그려지지만, 실제 원인
+(키 누락/인증 실패/모델 미지원/요청 형식 오류/일시적 API 장애)은 아래에서 서버 로그로
+구분해 남긴다 — 프론트 API 계약을 바꾸지 않으면서 운영 중 원인 파악을 돕기 위함.
 """
 
 import base64
+import logging
 
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 ANALYSIS_TIMEOUT_SECONDS = 20.0
 ANALYSIS_MAX_TOKENS = 500
-VISION_PROVIDER = "anthropic"
+VISION_PROVIDER = "openai"
 VISION_MODEL_VERSION = "1"
 VISION_SCHEMA_VERSION = "skin_observation.v1"
 
@@ -25,7 +32,7 @@ VISION_SCHEMA_VERSION = "skin_observation.v1"
 # scans/router.py)와 같은 값을 잠정 기준으로 쓴다.
 CONFIDENCE_THRESHOLD = 0.5
 
-# Claude Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
+# OpenAI Vision이 지원하는 형식만 분석을 시도한다. HEIC는 업로드는 허용되지만(5.2절)
 # 이 경로에서는 분석 불가로 취급해 model_not_implemented로 폴백시킨다.
 _SUPPORTED_MEDIA_TYPES = {"image/jpeg", "image/png"}
 _TRANSIENT_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
@@ -136,65 +143,89 @@ async def analyze_image(image_bytes: bytes, media_type: str) -> VisionOutcome | 
     분석 자체를 시도할 수 없으면(키 없음·SDK 없음·미지원 형식) None을 반환한다.
     모델 타임아웃과 일시적 호출 실패는 재시도 가능한 실패 결과로 반환한다.
     """
-    api_key = settings.anthropic_api_key
-    if api_key is None or media_type not in _SUPPORTED_MEDIA_TYPES:
+    api_key = settings.openai_api_key
+    if api_key is None:
+        logger.warning("Vision 분석 건너뜀: AAC_OPENAI_API_KEY가 설정되지 않았습니다.")
+        return None
+    if media_type not in _SUPPORTED_MEDIA_TYPES:
         return None
 
     try:
-        import anthropic
+        import openai
     except ImportError:
+        logger.error("Vision 분석 건너뜀: openai 패키지가 설치되지 않았습니다.")
         return None
 
     encoded_image = base64.b64encode(image_bytes).decode("ascii")
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=api_key.get_secret_value())
-        response = await client.with_options(timeout=ANALYSIS_TIMEOUT_SECONDS).messages.parse(
+        client = openai.AsyncOpenAI(api_key=api_key.get_secret_value())
+        response = await client.with_options(
+            timeout=ANALYSIS_TIMEOUT_SECONDS
+        ).chat.completions.parse(
             model=settings.vision_llm_model,
-            max_tokens=ANALYSIS_MAX_TOKENS,
-            system=_SYSTEM_PROMPT,
+            max_completion_tokens=ANALYSIS_MAX_TOKENS,
             messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": encoded_image,
-                            },
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{encoded_image}"},
                         },
                         {"type": "text", "text": "이 사진을 분석해 주세요."},
                     ],
-                }
+                },
             ],
-            output_format=VisionAnalysisResult,
+            response_format=VisionAnalysisResult,
         )
-    except anthropic.APITimeoutError:
+    except openai.APITimeoutError:
+        logger.warning("Vision 분석 실패: OpenAI API 타임아웃(일시적).")
         return VisionOutcome(
             failure_code="analysis_timeout",
             failure_message="분석 시간이 초과되었습니다.",
             failure_retryable=True,
         )
-    except anthropic.APIConnectionError:
+    except openai.APIConnectionError:
+        logger.warning("Vision 분석 실패: OpenAI API 연결 오류(일시적).")
         return VisionOutcome(
             failure_code="analysis_failed",
             failure_message="분석을 완료하지 못했습니다.",
             failure_retryable=True,
         )
-    except anthropic.APIStatusError as exc:
+    except openai.APIStatusError as exc:
         if exc.status_code in _TRANSIENT_STATUS_CODES:
+            logger.warning("Vision 분석 실패: OpenAI API 일시적 장애(status=%s).", exc.status_code)
             return VisionOutcome(
                 failure_code="analysis_failed",
                 failure_message="분석을 완료하지 못했습니다.",
                 failure_retryable=True,
             )
+        if exc.status_code == 401:
+            logger.error("Vision 분석 실패: 인증 실패(401) — AAC_OPENAI_API_KEY 값을 확인하세요.")
+        elif exc.status_code == 403:
+            logger.error("Vision 분석 실패: 권한 거부(403) — API 키 권한/조직 설정을 확인하세요.")
+        elif exc.status_code == 404:
+            logger.error(
+                "Vision 분석 실패: 모델 미지원(404, model=%s) — "
+                "AAC_VISION_LLM_MODEL 값을 확인하세요.",
+                settings.vision_llm_model,
+            )
+        elif exc.status_code == 400:
+            logger.error("Vision 분석 실패: 요청 형식 오류(400) — %s", exc.message)
+        else:
+            logger.error(
+                "Vision 분석 실패: 처리되지 않은 API 오류(status=%s) — %s",
+                exc.status_code,
+                exc.message,
+            )
         return None
     except Exception:
+        logger.exception("Vision 분석 실패: 예상하지 못한 예외.")
         return None
 
-    result = response.parsed_output
+    result = response.choices[0].message.parsed
     if result is None:
         return VisionOutcome(
             failure_code="analysis_failed",
