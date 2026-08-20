@@ -33,9 +33,9 @@ jobs:
           --health-retries 10
     env:
       AAC_DATABASE_URL: postgresql+asyncpg://ezkin:ci-only-password@localhost:5432/ezkin_test
-      AAC_AUTH_SECRET: ci-only-auth-secret
-      AAC_ADMIN_API_KEY: ci-only-admin-key
-      AAC_PARTNER_API_KEY: ci-only-partner-key
+      AAC_AUTH_SECRET: test-only-auth-secret
+      AAC_ADMIN_API_KEY: test-only-admin-key
+      AAC_PARTNER_API_KEY: test-only-partner-key
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
