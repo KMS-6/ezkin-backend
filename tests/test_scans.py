@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.scan import SkinScan
+from app.modules.scans.vision import VISION_MODEL_VERSION, VISION_PROVIDER
 
 QUESTIONNAIRE_ANSWERS = json.dumps(
     [
@@ -115,6 +117,51 @@ async def test_processing_scan_returns_retry_after_seconds(
     assert body["confidence"] is None
 
 
+async def test_legacy_completed_camera_scan_falls_back_to_current_model_metadata(
+    client: AsyncClient, db_session: AsyncSession, persona_headers: dict[str, str]
+) -> None:
+    scan = SkinScan(
+        persona_id="persona_001",
+        capture_method="camera",
+        captured_at=datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        status="completed",
+        completed_at=datetime(2026, 8, 16, 9, 1, tzinfo=UTC),
+        schema_version="skin_observation.v1",
+        scores={"redness": 0.5, "dryness": 0.5, "oiliness": 0.5},
+        confidence={"redness": 0.8, "dryness": 0.8, "oiliness": 0.8},
+    )
+    db_session.add(scan)
+    await db_session.commit()
+
+    result = await client.get(f"/api/v1/skin-scans/{scan.id}", headers=persona_headers)
+    assert result.status_code == 200
+    assert result.json()["model"] == {
+        "provider": VISION_PROVIDER,
+        "name": settings.vision_llm_model,
+        "version": VISION_MODEL_VERSION,
+    }
+
+
+async def test_completed_legacy_scan_uses_schema_version_fallback(
+    client: AsyncClient, db_session: AsyncSession, persona_headers: dict[str, str]
+) -> None:
+    scan = SkinScan(
+        persona_id="persona_001",
+        capture_method="camera",
+        captured_at=datetime(2026, 8, 16, 9, 0, tzinfo=UTC),
+        status="completed",
+        schema_version=None,
+    )
+    scan.scores = {"redness": 0.4}
+    db_session.add(scan)
+    await db_session.commit()
+
+    result = await client.get(f"/api/v1/skin-scans/{scan.id}", headers=persona_headers)
+
+    assert result.status_code == 200
+    assert result.json()["schema_version"] == "skin_observation.v1"
+
+
 async def test_idempotency_key_replays_same_scan(
     client: AsyncClient, persona_headers: dict[str, str]
 ) -> None:
@@ -138,9 +185,8 @@ async def test_idempotency_key_replays_same_scan(
 
 
 async def test_camera_scan_resolves_to_model_not_implemented(
-    client: AsyncClient, persona_headers: dict[str, str]
+    client: AsyncClient, persona_headers: dict[str, str], jpeg_bytes: bytes
 ) -> None:
-    jpeg_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 32
     response = await client.post(
         "/api/v1/skin-scans",
         headers={**persona_headers, "Idempotency-Key": "idem-camera"},

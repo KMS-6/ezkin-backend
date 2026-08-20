@@ -5,9 +5,13 @@
 반영하는지를 monkeypatch로 검증한다.
 """
 
+from datetime import UTC, datetime
+
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.sos import SosMessage
 from app.modules.triggers import llm_escalation, logic
 from app.modules.triggers.nlu import ParsedMessage
 from tests.conftest import TEST_PERSONA_ID
@@ -86,7 +90,10 @@ async def test_escalation_failure_falls_back_to_rule_based_clarification(
 
 
 async def test_escalation_daily_cap_stops_further_llm_calls(
-    client: AsyncClient, persona_headers: dict[str, str], monkeypatch
+    client: AsyncClient,
+    db_session: AsyncSession,
+    persona_headers: dict[str, str],
+    monkeypatch,
 ) -> None:
     call_count = 0
 
@@ -106,6 +113,20 @@ async def test_escalation_daily_cap_stops_further_llm_calls(
 
     session_id = await _create_session(client, persona_headers)
     await _send(client, persona_headers, session_id, "완전히 관련 없는 이야기예요")
+
+    message = (
+        await db_session.execute(select(SosMessage).where(SosMessage.llm_escalated.is_(True)))
+    ).scalar_one()
+    message.created_at = datetime(2026, 8, 20, 16, 0, tzinfo=UTC)
+    await db_session.commit()
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            fixed = datetime(2026, 8, 20, 16, 30, tzinfo=UTC)
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+
+    monkeypatch.setattr(logic, "datetime", FrozenDateTime)
     await _send(client, persona_headers, session_id, "이것도 전혀 관련 없는 이야기입니다")
 
     # 상한이 1이라 두 번째 저신뢰 메시지는 escalate_parse를 아예 호출하지 않아야 한다.

@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.idempotency import check_idempotency, store_idempotency
 from app.core.mock_persona import get_persona_id
-from app.core.storage import read_and_validate_image, store_bytes
+from app.core.storage import read_and_validate_image
 from app.db.session import get_db
 from app.models.scan import SkinQuestionnaireAnswers, SkinScan
 from app.modules.scans.analysis import score_questionnaire
@@ -34,7 +34,12 @@ from app.modules.scans.schemas import (
     SkinScanModel,
     SkinScanResult,
 )
-from app.modules.scans.vision import analyze_image
+from app.modules.scans.vision import (
+    VISION_MODEL_VERSION,
+    VISION_PROVIDER,
+    VISION_SCHEMA_VERSION,
+    analyze_image,
+)
 
 router = APIRouter(prefix="/skin-scans", tags=["skin-scans"])
 DbSession = Annotated[AsyncSession, Depends(get_db)]
@@ -185,7 +190,6 @@ async def create_skin_scan(
 
     if capture_method == "camera":
         assert image_bytes is not None
-        scan.image_storage_key = store_bytes(image_bytes, "skin-scans")
         outcome = await analyze_image(image_bytes, image.content_type)
         if outcome is None:
             scan.status = "failed"
@@ -194,16 +198,17 @@ async def create_skin_scan(
         elif outcome.failure_code is not None:
             scan.status = "failed"
             scan.failure_code = outcome.failure_code
-            scan.failure_retryable = True
+            scan.failure_retryable = outcome.failure_retryable
         else:
             scan.scores = outcome.scores
             scan.confidence = outcome.confidence
-            scan.lower_accuracy = True
+            scan.lower_accuracy = False
             scan.status = "completed"
             scan.completed_at = datetime.now(UTC)
-            scan.model_provider = "anthropic"
-            scan.model_name = settings.vision_llm_model
-            scan.model_version = "1"
+            scan.model_provider = outcome.model_provider
+            scan.model_name = outcome.model_name
+            scan.model_version = outcome.model_version
+            scan.schema_version = outcome.schema_version
     else:
         assert parsed_answers is not None
         scores = score_questionnaire(parsed_answers)
@@ -212,6 +217,7 @@ async def create_skin_scan(
         scan.lower_accuracy = True
         scan.status = "completed"
         scan.completed_at = datetime.now(UTC)
+        scan.schema_version = VISION_SCHEMA_VERSION
 
     db.add(scan)
     await db.flush()
@@ -262,6 +268,12 @@ def _scan_model(scan: SkinScan) -> SkinScanModel | None:
             name=scan.model_name,
             version=scan.model_version,
         )
+    if scan.capture_method == "camera":
+        return SkinScanModel(
+            provider=scan.model_provider or VISION_PROVIDER,
+            name=scan.model_name or settings.vision_llm_model,
+            version=scan.model_version or VISION_MODEL_VERSION,
+        )
     # questionnaire 채점(analysis.py::score_questionnaire)은 외부 모델을 쓰지 않는
     # 규칙 기반 로직이라 실제 모델 메타데이터가 없다.
     return SkinScanModel(provider="TBD", name="TBD", version="TBD")
@@ -295,7 +307,9 @@ async def get_skin_scan(scan_id: UUID, db: DbSession, persona_id: PersonaId) -> 
         capture_method=scan.capture_method,
         created_at=scan.created_at,
         lower_accuracy=scan.lower_accuracy,
-        schema_version="skin_observation.v1" if scan.status == "completed" else None,
+        schema_version=(scan.schema_version or VISION_SCHEMA_VERSION)
+        if scan.status == "completed"
+        else None,
         scores=scan.scores,
         confidence=scan.confidence,
         delta_vs_baseline=delta_vs_baseline,
