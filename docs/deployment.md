@@ -8,7 +8,7 @@ EZkin Frontend
                   └─ private network → ezkin-db (Render PostgreSQL)
 ```
 
-저장소 루트의 `render.yaml`이 API와 PostgreSQL 설정의 단일 기준이다. `develop` 브랜치 push → GitHub Actions CI 통과 → CD 잡이 Render Deploy Hook 호출 → Render 자동 배포 순으로 진행된다.
+저장소 루트의 `render.yaml`이 API와 PostgreSQL 설정의 단일 기준이다. `main` 브랜치 push → GitHub Actions CI 통과 → CD 잡이 Render Deploy Hook 호출 → Render 자동 배포 순으로 진행된다.
 
 ## 2. Render 선택 이유
 
@@ -25,7 +25,7 @@ EZkin Frontend
 
 1. Render Dashboard에서 **New > Blueprint**를 선택한다.
 2. `KMS-6/ezkin-backend` 저장소를 연결한다.
-3. Blueprint branch를 `develop`로 설정한다.
+3. Blueprint branch를 `main`으로 설정한다.
 4. `AAC_CORS_ORIGINS`에 실제 프런트 origin을 JSON 배열로 입력한다.
 5. `AAC_AUTH_SECRET`, `AAC_ADMIN_API_KEY`, `AAC_PARTNER_API_KEY`에 각각 충분히 긴 무작위 비밀값을 입력한다. 저장소에 커밋하지 않는다.
 6. GitHub 저장소 **Settings > Secrets and variables > Actions**에서 `RENDER_DEPLOY_HOOK_URL`을 추가한다.
@@ -44,7 +44,7 @@ EZkin Frontend
 1. 컨테이너가 시작하며 `alembic upgrade head`를 실행한다. PostgreSQL에서는 advisory lock으로 동시 migration을 직렬화한다.
 2. Render가 주입한 `PORT`와 `0.0.0.0`에 API 서버를 바인딩한다.
 3. `/health`가 HTTP 200을 반환해야 새 배포가 유효하다.
-4. `develop` 브랜치에 push되면 GitHub Actions `backend` · `deployment-config` 잡이 실행된다.
+4. `main` 브랜치에 push되면 GitHub Actions `backend` · `deployment-config` 잡이 실행된다.
 5. 두 잡이 모두 통과하면 `deploy` 잡이 Render Deploy Hook을 POST 호출한다.
 6. Render가 새 이미지를 빌드하고 `/health`가 200을 반환하면 배포가 완료된다.
 
