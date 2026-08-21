@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "20260821_0019"
+revision: str = "20260821_0018"
 down_revision: str | tuple[str, ...] | None = ("20260821_0016", "20260821_0017")
 branch_labels: str | None = None
 depends_on: str | None = None
