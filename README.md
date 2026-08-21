@@ -20,10 +20,17 @@
 
 ## 주요 기능
 
-- 사용자 등록 및 서명된 Bearer 토큰 발급
-- 사용자별 화장품 선반 등록·조회·수정·소프트 삭제
+- 사용자 등록 및 서명된 Bearer 토큰(access token) 발급, Demo 페르소나(`X-Mock-Persona-Id`) 병행 지원
+- 사용자별 화장품 선반(My Shelf) 등록·조회·수정·소프트 삭제
 - 습도·자외선·사용자 불편 여부에 따른 케어 모드 미리보기
 - 응급 증상 표현을 감지하는 Quick Care 안전 점검
+- 온보딩 프로필과 생활 지표(Daily Metrics) 저장
+- 피부 스캔(Skin Scan) 접수·상태 조회 및 AI 분석 결과 반환
+- Today Briefing: 오늘의 피부 위험도와 케어 순서 계산
+- 72시간 Trigger 분석과 14일·30일 Pattern Report 생성
+- SOS 세션/메시지 기반 규칙 우선 챗봇, 위험 신호 안전 처리
+- 화장품 성분·공통 지식(Knowledge RAG) 검색과 근거 연결
+- 알림 설정, 추천, 사용자 피드백 저장
 - SQLAlchemy 모델과 Alembic 마이그레이션
 - Docker, PostgreSQL, Render 배포 구성
 - Ruff, pytest, Docker build 기반 GitHub Actions CI
@@ -126,6 +133,17 @@ Authorization: Bearer <access_token>
 | `DELETE` | `/api/v1/shelf/products/{product_id}` | 내 선반 제품 삭제 | Bearer |
 | `POST` | `/api/v1/care-contexts/preview` | 케어 모드 미리보기 | 불필요 |
 | `POST` | `/api/v1/quick-care/safety-check` | 응급 증상 안전 점검 | 불필요 |
+| `POST` | `/api/v1/onboarding` | 온보딩 프로필 등록·조회 | Bearer 또는 Persona |
+| `PUT` | `/api/v1/daily-manual-metrics/{date}` | 식사·물 등 수동 지표 저장 | Bearer 또는 Persona |
+| `GET` | `/api/v1/briefings/today` | 오늘의 피부 위험도·케어 순서 | Bearer 또는 Persona |
+| `POST` | `/api/v1/skin-scans` | 피부 스캔 접수 | Bearer 또는 Persona |
+| `GET` | `/api/v1/skin-scans/{scan_id}` | 피부 스캔 결과 조회 | Bearer 또는 Persona |
+| `GET` | `/api/v1/analysis/eligibility` | 14일·30일 리포트 생성 가능 여부 | Bearer 또는 Persona |
+| `POST` | `/api/v1/reports` | 14일·30일 리포트 생성 | Bearer 또는 Persona |
+| `GET` | `/api/v1/reports/{report_id}` | 리포트 결과 조회 | Bearer 또는 Persona |
+| `GET` | `/api/v1/pattern-analysis` | 72시간 Trigger 패턴 분석 | Bearer 또는 Persona |
+| `POST` | `/api/v1/sos/sessions` | SOS 세션 생성 | Bearer 또는 Persona |
+| `POST` | `/api/v1/sos/sessions/{id}/messages` | SOS 메시지 전송 | Bearer 또는 Persona |
 
 정확한 요청·응답 스키마는 실행 중인 Swagger UI에서 확인합니다.
 
