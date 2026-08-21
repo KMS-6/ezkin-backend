@@ -141,6 +141,7 @@ Render는 `main` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 F
 ## 협업 문서
 
 - [배포 가이드](docs/deployment.md)
+- [프론트엔드 연동 계약 및 현재 검증 상태](docs/frontend-integration-status.md)
 - [코드 리뷰 컨벤션](docs/conventions/code-review.md)
 - [GitHub 워크플로](docs/conventions/github-workflow.md)
 - [ADR: 서명된 사용자 토큰](docs/decisions/001-signed-user-token.md)
