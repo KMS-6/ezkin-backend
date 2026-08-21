@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.metrics import DailyMetric
+from app.models.persona import Persona
 from app.models.weather import WeatherSnapshot
 from app.modules.briefings import logic as briefings_logic
 from app.modules.briefings import router as briefings_router
@@ -50,6 +51,32 @@ async def test_briefing_generates_and_is_cached(
     # wall-clock portion only — this proves the briefing was cached, not regenerated.
     assert second.json()["generated_at"][:19] == body["generated_at"][:19]
     assert second.json()["headline"] == body["headline"]
+
+
+async def test_briefing_generates_and_is_cached_for_uuid_length_persona_id(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    persona_id = "123e4567-e89b-12d3-a456-426614174000"
+    headers = {"X-Mock-Persona-Id": persona_id}
+
+    db_session.add(Persona(id=persona_id, label="UUID 페르소나", summary_traits={}))
+    await db_session.commit()
+
+    await client.post(
+        "/api/v1/cosmetics",
+        headers=headers,
+        data={"brand": "AAC", "product_name": "수분 토너", "product_type": "toner"},
+    )
+
+    first = await client.get("/api/v1/briefings/today", headers=headers)
+    assert first.status_code == 200
+    body = first.json()
+    assert body["status"] == "ready"
+    assert body["routine"][0]["name"] == "AAC 수분 토너"
+
+    second = await client.get("/api/v1/briefings/today", headers=headers)
+    assert second.status_code == 200
+    assert second.json()["generated_at"][:19] == body["generated_at"][:19]
 
 
 async def test_prescription_reuses_briefing_routine(
