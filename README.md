@@ -36,8 +36,8 @@
 
 ## 👥 개발자
 
-| [<img src="https://github.com/Je-hye.png" width="80"><br>Je-hye](https://github.com/Je-hye) | [<img src="https://github.com/trudy-0.png" width="80"><br>trudy-0](https://github.com/trudy-0) | [<img src="https://github.com/AnDongKyun1103.png" width="80"><br>AnDongKyun1103](https://github.com/AnDongKyun1103) |
-|:---:|:---:|:---:|
+| [<img src="https://github.com/Je-hye.png" width="80"><br>Je-hye](https://github.com/Je-hye) | [<img src="https://github.com/trudy-0.png" width="80"><br>trudy-0](https://github.com/trudy-0) |
+|:---:|:---:|
 
 ## 주요 기능
 
