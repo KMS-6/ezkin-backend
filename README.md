@@ -2,7 +2,21 @@
 
 생활·환경 데이터를 활용해 비의료적 피부 관리 정보를 제공하는 EZkin의 FastAPI 백엔드입니다.
 
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![uv](https://img.shields.io/badge/uv-package_manager-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
+[![Deploy](https://img.shields.io/badge/Deploy-Render-46E3B7?logo=render&logoColor=white)](https://ezkin-api.onrender.com)
+[![CI](https://github.com/KMS-6/ezkin-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/KMS-6/ezkin-backend/actions/workflows/ci.yml)
+
 > 이 서비스는 의료 진단이나 치료를 제공하지 않습니다. 응급 증상이 감지되면 일반 안내를 중단하고 전문 의료기관 이용을 권고합니다.
+
+## 👥 개발자
+
+| [<img src="https://github.com/Je-hye.png" width="80"><br>Je-hye](https://github.com/Je-hye) | [<img src="https://github.com/trudy-0.png" width="80"><br>trudy-0](https://github.com/trudy-0) | [<img src="https://github.com/AnDongKyun1103.png" width="80"><br>AnDongKyun1103](https://github.com/AnDongKyun1103) |
+|:---:|:---:|:---:|
 
 ## 주요 기능
 
@@ -41,7 +55,7 @@ compose.yaml             # 로컬 PostgreSQL과 API 구성
 render.yaml              # Render Blueprint
 ```
 
-## 로컬 실행
+## 🚀 로컬 실행
 
 ### 1. 요구 사항
 
@@ -89,7 +103,7 @@ uv run uvicorn app.main:app --reload
 
 현재 전체 `docker compose up` 실행 경로의 인증 환경변수 전달과 PostgreSQL 통합 검증은 [Issue #9](https://github.com/KMS-6/ezkin-backend/issues/9)에서 보완합니다.
 
-## API 인증
+## 🔐 API 인증
 
 `POST /api/v1/users`로 사용자를 등록하면 `access_token`이 발급됩니다. 선반 API는 토큰을 Authorization 헤더로 전달해야 합니다.
 
@@ -99,7 +113,7 @@ Authorization: Bearer <access_token>
 
 `X-User-Id`는 인증 수단으로 사용하지 않습니다.
 
-## 주요 API
+## 📡 주요 API
 
 | Method | Endpoint | 설명 | 인증 |
 | --- | --- | --- | --- |
@@ -115,7 +129,7 @@ Authorization: Bearer <access_token>
 
 정확한 요청·응답 스키마는 실행 중인 Swagger UI에서 확인합니다.
 
-## 테스트와 정적 검사
+## ✅ 테스트와 정적 검사
 
 ```bash
 uv run ruff format --check .
@@ -125,7 +139,7 @@ docker compose config --quiet
 docker build -t ezkin-api:local .
 ```
 
-## 배포
+## ☁️ 배포
 
 Render는 `main` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 FastAPI와 PostgreSQL을 배포합니다. 최초 Blueprint 생성, 필수 환경변수 설정, 검증 및 롤백 절차는 [배포 가이드](docs/deployment.md)를 참고합니다.
 
@@ -138,7 +152,7 @@ Render는 `main` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 F
 
 `AAC_DATABASE_URL`은 Render PostgreSQL 연결 문자열에서 자동으로 주입됩니다.
 
-## 협업 문서
+## 📚 협업 문서
 
 - [온보딩 가이드](docs/onboarding.md)
 - [아키텍처 개요](docs/architecture.md)
@@ -149,7 +163,7 @@ Render는 `main` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 F
 - [ADR: 서명된 사용자 토큰](docs/decisions/001-signed-user-token.md)
 - [변경 이력](CHANGELOG.md)
 
-## 현재 범위
+## 🚧 현재 범위
 
 - `CareContext`, `CareRoutine`, `RoutineStep`은 스키마만 존재하며 아직 DB 쓰기 경로가 없습니다.
 - 이미지 스캔 기반 제품 등록과 AI confidence 기록은 후속 구현 대상입니다.
