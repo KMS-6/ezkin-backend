@@ -140,6 +140,8 @@ Render는 `main` 브랜치의 CI가 통과하면 `render.yaml`을 기준으로 F
 
 ## 협업 문서
 
+- [온보딩 가이드](docs/onboarding.md)
+- [아키텍처 개요](docs/architecture.md)
 - [배포 가이드](docs/deployment.md)
 - [코드 리뷰 컨벤션](docs/conventions/code-review.md)
 - [GitHub 워크플로](docs/conventions/github-workflow.md)
