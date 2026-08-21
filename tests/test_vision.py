@@ -238,6 +238,14 @@ def test_build_outcome_fails_when_every_metric_has_low_confidence() -> None:
     assert outcome.scores == {}
 
 
+def test_build_outcome_ignores_pose_and_occlusion_flags() -> None:
+    # invalid_face_pose·face_occluded는 완화 대상이라 치명 실패로 취급하지 않는다.
+    outcome = _build_outcome(_result(invalid_face_pose=True, face_occluded=True))
+
+    assert outcome.failure_code is None
+    assert outcome.scores == {"redness": 0.4, "dryness": 0.2, "oiliness": 0.6}
+
+
 def test_build_outcome_reports_first_quality_failure_in_table_order() -> None:
     # face_not_detected가 표에서 image_blurry보다 앞서므로, 둘 다 실패해도
     # face_not_detected만 사용자에게 안내한다.

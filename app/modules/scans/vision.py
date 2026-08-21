@@ -39,14 +39,14 @@ _TRANSIENT_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
 
 # 5.3절 품질 검사 표 순서. 여러 항목이 동시에 실패해도 표 순서상 첫 실패만 사용자에게
 # 안내한다(재촬영 가이드를 한 번에 하나씩만 보여주기 위함).
+# invalid_face_pose·face_occluded는 완화 대상: 관찰 신뢰도에 영향은 있으나 하드 게이트로
+# 막을 만큼 치명적이지 않다고 보고 치명 실패에서 제외했다(유효 스캔 축적 속도 우선).
 _QUALITY_FAILURES: tuple[tuple[str, str, str], ...] = (
     ("face_not_detected", "face_not_detected", "화면에 얼굴이 잘 보이도록 맞춰 주세요."),
     ("multiple_faces", "multiple_faces", "화면에 한 명의 얼굴만 나오도록 맞춰 주세요."),
     ("lighting_too_dark", "lighting_too_dark", "조명을 밝게 하고 다시 촬영해 주세요."),
     ("lighting_too_bright", "lighting_too_bright", "직사광선을 피하고 다시 촬영해 주세요."),
     ("image_blurry", "image_blurry", "렌즈를 닦고 기기를 고정한 뒤 다시 촬영해 주세요."),
-    ("invalid_face_pose", "invalid_face_pose", "정면을 보고 표정을 유지해 주세요."),
-    ("face_occluded", "face_occluded", "머리카락, 손, 마스크 등을 치우고 다시 촬영해 주세요."),
 )
 
 _SYSTEM_PROMPT = (
@@ -100,8 +100,6 @@ def _quality_failure(result: VisionAnalysisResult) -> tuple[str, str] | None:
         "lighting_too_dark": result.lighting_too_dark,
         "lighting_too_bright": result.lighting_too_bright,
         "image_blurry": result.image_blurry,
-        "invalid_face_pose": result.invalid_face_pose,
-        "face_occluded": result.face_occluded,
     }
     for flag_name, code, message in _QUALITY_FAILURES:
         if flags[flag_name]:
