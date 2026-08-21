@@ -1,17 +1,38 @@
-# EZkin Backend
+<div align="center">
 
-생활·환경 데이터를 활용해 비의료적 피부 관리 정보를 제공하는 EZkin의 FastAPI 백엔드입니다.
+# 🧴 EZkin Backend
 
-[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
-[![uv](https://img.shields.io/badge/uv-package_manager-DE5FE9?logo=uv&logoColor=white)](https://docs.astral.sh/uv/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com)
-[![Deploy](https://img.shields.io/badge/Deploy-Render-46E3B7?logo=render&logoColor=white)](https://ezkin-api.onrender.com)
-[![CI](https://github.com/KMS-6/ezkin-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/KMS-6/ezkin-backend/actions/workflows/ci.yml)
+### 생활·환경 데이터로 완성하는 비의료적 피부 관리 안내 API ✨
+
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.116+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com)
+
+[![CI](https://img.shields.io/github/actions/workflow/status/KMS-6/ezkin-backend/ci.yml?style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/KMS-6/ezkin-backend/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
+[![Last Commit](https://img.shields.io/github/last-commit/KMS-6/ezkin-backend?style=flat-square&logo=git&logoColor=white)](https://github.com/KMS-6/ezkin-backend/commits/main)
+
+**[⚙️ API 바로가기](https://ezkin-api.onrender.com/docs)** · **[📘 문서](docs/onboarding.md)** · **[🎨 프론트엔드 저장소](https://github.com/KMS-6/ezkin-frontend)**
+
+</div>
+
+---
 
 > 이 서비스는 의료 진단이나 치료를 제공하지 않습니다. 응급 증상이 감지되면 일반 안내를 중단하고 전문 의료기관 이용을 권고합니다.
+
+## 🔗 배포 링크
+
+[![API](https://img.shields.io/badge/⚙️_Backend_API-ezkin--api.onrender.com-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://ezkin-api.onrender.com)
+[![Swagger](https://img.shields.io/badge/📄_Swagger_UI-/docs-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)](https://ezkin-api.onrender.com/docs)
+
+| 구분 | 링크 |
+|---|---|
+| ⚙️ API (Render) | <https://ezkin-api.onrender.com> |
+| 📄 Swagger UI | <https://ezkin-api.onrender.com/docs> |
+| ❤️ Health Check | <https://ezkin-api.onrender.com/health> |
+| 🎨 프론트엔드 웹 | <https://ezkin-dev1.vercel.app> |
 
 ## 👥 개발자
 
